@@ -1,0 +1,93 @@
+# Core Defect Tags - 고정 태그 목록
+# Evaluator는 이 태그에서만 선택 (Proposed 제안 가능)
+
+version: 1
+updated_at: "2026-02-05"
+
+tags:
+  - id: MISSING_REQUIRED_ITEM
+    definition: "필수 포함 항목이 누락됨"
+    examples:
+      - "시장 규모 섹션에서 TAM/SAM/SOM 중 하나 누락"
+      - "경쟁사 분석에서 비교표 없음"
+      - "사업비 집행계획에서 비목별 산출근거 누락"
+    counter_examples:
+      - "선택 항목인 '추가 참고자료' 누락"
+      - "권장 사항이지만 필수가 아닌 이미지 미포함"
+    severity: 3
+    auto_fix_hint: "체크리스트에 해당 항목 강조 추가, 출력 템플릿에 필수 표시"
+
+  - id: NO_EVIDENCE_OR_CITATION
+    definition: "수치/주장에 대한 출처나 근거 없음"
+    examples:
+      - "'시장이 급성장하고 있다' (출처 없음)"
+      - "'고객 만족도 95%' (조사 방법/출처 없음)"
+      - "'업계 1위' (근거 없음)"
+    counter_examples:
+      - "'시장 규모 10조원 (2024 통계청)'"
+      - "'CAGR 15.2% (Markets and Markets, 2024)'"
+    severity: 3
+    auto_fix_hint: "문단당 최소 1개 근거 규칙 추가, 출처 형식 명시"
+
+  - id: VAGUE_CLAIMS
+    definition: "모호한 표현 사용 (정량화 가능한데 하지 않음)"
+    examples:
+      - "'많은 고객들이'"
+      - "'상당한 성장'"
+      - "'향후 확대 예정'"
+      - "'빠르게 증가하는'"
+    counter_examples:
+      - "'월 활성 사용자 1만명'"
+      - "'연평균 15% 성장'"
+      - "'2026년 Q3 출시 예정'"
+    severity: 2
+    auto_fix_hint: "모호 표현 금지 목록 추가, 수치/사례로 치환 규칙"
+
+  - id: FORMAT_NONCOMPLIANCE
+    definition: "출력 형식이 요구사항과 불일치"
+    examples:
+      - "표가 마크다운 형식(|---|)이 아님"
+      - "섹션 헤더가 누락됨"
+      - "AI 코멘트/제안이 포함됨"
+      - "'원하시면', '참고로' 등 비공식 표현 포함"
+    counter_examples:
+      - "마크다운 표가 올바르게 작성됨"
+      - "본문만 출력됨 (추가 설명 없음)"
+    severity: 2
+    auto_fix_hint: "출력 포맷 더 엄격하게, 금지 표현 목록 강화"
+
+  - id: LOGIC_FLOW_WEAK
+    definition: "논리 흐름이 약함 (문제→원인→해결→효과 연결 부족)"
+    examples:
+      - "문제 정의 없이 바로 해결책 제시"
+      - "원인과 해결책이 연결되지 않음"
+      - "효과/기대성과가 근거 없이 주장됨"
+    counter_examples:
+      - "문제 → 원인 분석 → 해결 방안 → 기대 효과 순서로 전개"
+      - "각 단계가 논리적으로 연결됨"
+    severity: 2
+    auto_fix_hint: "문단별 논리 목적 라벨링 강제 (문제/원인/해결/효과)"
+
+  - id: DIFFERENTIATION_WEAK
+    definition: "경쟁사 대비 차별성/우위가 불명확"
+    examples:
+      - "경쟁사 언급 없이 '우수하다'고만 주장"
+      - "차별점이 추상적 ('더 좋은 서비스')"
+      - "경쟁사 대비 정량적 비교 없음"
+    counter_examples:
+      - "경쟁사 A 대비 처리 속도 30% 향상"
+      - "기존 솔루션에 없는 X 기능 제공"
+      - "가격 대비 성능 비교표 포함"
+    severity: 2
+    auto_fix_hint: "경쟁사 대비 3가지 차별점 + 정량적 근거 항목 강제"
+
+# 태그 승격 규칙
+governance:
+  promotion_criteria:
+    min_occurrences: 3
+    min_sections: 2
+    review_required: true
+
+  demotion_criteria:
+    no_occurrence_days: 30
+    merge_to_core: true

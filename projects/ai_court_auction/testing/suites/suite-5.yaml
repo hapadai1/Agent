@@ -1,0 +1,59 @@
+# Suite-5: 최소 검증 세트
+# 용도: Champion/Challenger 비교를 위한 기본 테스트 세트
+# 구성: A(같은 섹션) 3개 + B(유사 섹션) 2개
+
+name: suite-5
+description: "최소 검증 세트 (5개 샘플)"
+version: 1
+created_at: "2026-02-05"
+
+# 샘플 목록
+samples:
+  # Category A: 같은 섹션 (s1_2) - 상/중/하
+  - id: s1_2_case01
+    file: samples/s1_2_case01.md
+    category: A
+    difficulty: high
+    is_golden: true
+
+  - id: s1_2_case02
+    file: samples/s1_2_case02.md
+    category: A
+    difficulty: mid
+    is_golden: false
+
+  - id: s1_2_case03
+    file: samples/s1_2_case03.md
+    category: A
+    difficulty: low
+    is_golden: false
+
+  # Category B: 유사 섹션
+  - id: s1_3_case01
+    file: samples/s1_3_case01.md
+    category: B
+    difficulty: mid
+    is_golden: false
+
+  - id: s3_1_case01
+    file: samples/s3_1_case01.md
+    category: B
+    difficulty: mid
+    is_golden: false
+
+# 실행 설정
+execution:
+  evaluator: frozen          # frozen 또는 live
+  timeout_per_sample: 180    # 초
+  max_retries: 1
+
+# 결과 저장 설정
+output:
+  save_outputs: true         # 생성된 텍스트 저장
+  save_evals: true           # 평가 JSON 저장
+  output_dir: "runs/{date}/{variant}/"
+
+notes: |
+  - Category A: 동일 섹션에서 프롬프트 개선 효과 측정
+  - Category B: 다른 섹션에서 일반화 성능 확인
+  - Golden 샘플(s1_2_case01)은 expected_score_range 검증에 사용

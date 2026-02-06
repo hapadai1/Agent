@@ -1,0 +1,17 @@
+{
+  "global_state": "INIT",
+  "source_dir": "",
+  "test_command": "npm test",
+  "build_command": "npm run build",
+  "chatgpt": {
+    "window": 0,
+    "tab": 0,
+    "title": "",
+    "default_timeout": 180
+  },
+  "verifications": [],
+  "current_file": "",
+  "total_files_verified": 0,
+  "issues_found": 0,
+  "issues_fixed": 0
+}

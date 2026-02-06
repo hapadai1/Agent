@@ -1,0 +1,79 @@
+# ChatGPT 탭 설정
+# 용도: Chrome에서 ChatGPT 탭 5개 구성
+# 생성일: 2026-02-05
+
+name: chatgpt_tabs
+version: 1
+
+# ══════════════════════════════════════════════════════════════
+# 탭 구성
+# ══════════════════════════════════════════════════════════════
+
+tabs:
+  tab1:
+    name: "리서치"
+    purpose: "시장조사, 통계, 일반 질의"
+    env_var: TAB_RESEARCH
+    default: 1
+
+  tab2:
+    name: "Writer (Champion)"
+    purpose: "고정 프롬프트로 사업계획서 작성"
+    env_var: TAB_WRITER_CHAMPION
+    default: 2
+    chatgpt_title: "사업계획서_고정"
+
+  tab3:
+    name: "Writer (Challenger)"
+    purpose: "개선 프롬프트로 사업계획서 작성"
+    env_var: TAB_WRITER_CHALLENGER
+    default: 3
+    chatgpt_title: "사업계획서_개선"
+
+  tab4:
+    name: "Evaluator (Frozen)"
+    purpose: "사업계획서 평가 (매번 New Chat)"
+    env_var: TAB_EVALUATOR
+    default: 4
+    new_chat_before_use: true
+    chatgpt_title: "평가"
+    # 프로젝트 내 새 채팅 지원
+    # Tab4가 프로젝트 화면이면 자동으로 프로젝트 내에서 새 채팅 생성
+    # 환경변수로 명시적 지정: EVALUATOR_PROJECT_URL
+    project_aware: true
+
+  tab5:
+    name: "Prompt Critic + Builder"
+    purpose: "프롬프트 개선 및 기타 질의"
+    env_var: TAB_PROMPT
+    default: 5
+    chatgpt_title: "프롬프트개선"
+
+# ══════════════════════════════════════════════════════════════
+# 사용법
+# ══════════════════════════════════════════════════════════════
+
+usage:
+  chrome_setup: |
+    Chrome에서 ChatGPT 탭 5개를 아래 순서로 열기:
+    1. Tab1: https://chatgpt.com/ (리서치)
+    2. Tab2: https://chatgpt.com/ (사업계획서_고정)
+    3. Tab3: https://chatgpt.com/ (사업계획서_개선)
+    4. Tab4: https://chatgpt.com/ (평가)
+    5. Tab5: https://chatgpt.com/ (프롬프트개선)
+
+  override_example: |
+    # 환경변수로 탭 번호 변경
+    TAB_EVALUATOR=6 ./lib/suite_runner.sh --writer=champion
+
+  disable_new_chat: |
+    # Evaluator New Chat 비활성화 (테스트용)
+    EVALUATOR_NEW_CHAT=false ./lib/suite_runner.sh --writer=champion
+
+# ══════════════════════════════════════════════════════════════
+# 관련 파일
+# ══════════════════════════════════════════════════════════════
+
+related_files:
+  - lib/suite_runner.sh      # 탭 설정 사용
+  - common/chatgpt.sh        # ChatGPT 자동화 함수

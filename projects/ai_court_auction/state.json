@@ -1,0 +1,143 @@
+{
+  "created_at": "2026-02-05T04:31:43Z",
+  "updated_at": "2026-02-05T20:41:11Z",
+  "global_state": "INIT",
+  "topic": "AI 법원 경매 - 법원 경매를 스크래핑, OCR, RAG, LLM 분석을 하는 서비스",
+  "user_context": {
+    "business_type": "지식서비스",
+    "tech_field": "정보·통신",
+    "app_type": "",
+    "gov_fund": 100,
+    "closure_count": 0,
+    "template_uploaded": true,
+    "context_sent": true
+  },
+  "chatgpt": {
+    "window": 1,
+    "tab": 2,
+    "default_timeout": 180,
+    "research_timeout": 600
+  },
+  "sections": {
+    "overview": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": false,
+      "needs_research": false,
+      "file": "section_overview.md"
+    },
+    "product_summary": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": false,
+      "needs_research": false,
+      "file": "section_product_summary.md"
+    },
+    "closure_details": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": true,
+      "needs_research": false,
+      "file": "section_closure_details.md"
+    },
+    "s1_1": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": true,
+      "needs_research": false,
+      "file": "section_1_1.md"
+    },
+    "s1_2": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": false,
+      "needs_research": false,
+      "file": "section_1_2.md"
+    },
+    "s1_3": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": false,
+      "needs_research": true,
+      "file": "section_1_3.md"
+    },
+    "s2_1": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": false,
+      "needs_research": false,
+      "file": "section_2_1.md"
+    },
+    "s2_2": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": false,
+      "needs_research": false,
+      "file": "section_2_2.md"
+    },
+    "s3_1": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": false,
+      "needs_research": true,
+      "file": "section_3_1.md"
+    },
+    "s3_2": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": false,
+      "needs_research": true,
+      "file": "section_3_2.md"
+    },
+    "s3_3": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": false,
+      "needs_research": false,
+      "file": "section_3_3.md"
+    },
+    "s4_1": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": true,
+      "needs_research": false,
+      "file": "section_4_1.md"
+    },
+    "s4_2": {
+      "state": "pending",
+      "iteration": 0,
+      "score": 0,
+      "needs_human": false,
+      "needs_research": false,
+      "file": "section_4_2.md"
+    }
+  },
+  "overall_score": 0,
+  "max_iterations_per_section": 10,
+  "target_score": 95,
+  "research_completed": [],
+  "research_files": {
+    "market_size": "",
+    "competitive": "",
+    "customer_needs": ""
+  },
+  "human_input_files": {
+    "closure_details": "",
+    "s1_1": "",
+    "s4_1": ""
+  },
+  "project_name": "ai_court_auction",
+  "template": "bizplan"
+}

@@ -1,0 +1,70 @@
+{
+  "suite": "suite-5",
+  "date": "2026-02-05",
+  "baseline": {
+    "writer": "champion",
+    "avg_score": 75.0,
+    "total_tags": 1,
+    "tag_frequency": {
+      "VAGUE_CLAIMS": 1
+    }
+  },
+  "challenger": {
+    "writer": "challenger",
+    "avg_score": 75.0,
+    "total_tags": 1,
+    "tag_frequency": {
+      "VAGUE_CLAIMS": 1
+    }
+  },
+  "improvement": {
+    "score_diff": 0.0,
+    "tag_reduction": 0
+  },
+  "gate_checks": {
+    "avg_score_improvement": {
+      "required": 3,
+      "actual": 0.0,
+      "passed": false
+    },
+    "min_absolute_score": {
+      "required": 70,
+      "actual": 75.0,
+      "passed": true
+    },
+    "no_severe_regression": {
+      "max_allowed": 5,
+      "regressions": [],
+      "passed": true
+    },
+    "no_critical_tags": {
+      "critical_tags": [
+        "MISSING_REQUIRED_ITEM"
+      ],
+      "max_allowed_cases": 0,
+      "actual_cases": 0,
+      "passed": true
+    },
+    "tag_reduction": {
+      "required": true,
+      "reduction": 0,
+      "passed": true
+    }
+  },
+  "verdict": "REJECT",
+  "sample_comparisons": [
+    {
+      "sample_id": "s3_1_case01",
+      "baseline_score": 75,
+      "challenger_score": 75,
+      "diff": 0,
+      "baseline_tags": [
+        "VAGUE_CLAIMS"
+      ],
+      "challenger_tags": [
+        "VAGUE_CLAIMS"
+      ]
+    }
+  ],
+  "verdict_reason": "기준 미달: ['avg_score_improvement']"
+}
