@@ -38,8 +38,11 @@ show_help() {
     echo ""
     echo "━━━ 옵션 ━━━"
     echo ""
-    echo "  --suite=NAME      테스트 스위트 (기본: suite-5)"
+    echo "  --suite=NAME      특정 스위트만 실행 (예: suite-s1_2)"
+    echo "  --from=SECTION    해당 섹션부터 끝까지 실행 (예: --from=s1_2)"
+    echo "  --from=SECTION:V  해당 섹션의 버전 V부터 실행 (예: --from=s1_2:3 → v3부터)"
     echo "  --runs=N          각 샘플당 반복 횟수 (기본: 5)"
+    echo "  --research        리서치 실행 포함 (Tab1)"
     echo "  --dry-run         ChatGPT 호출 없이 테스트"
     echo "  --auto-promote    A/B 비교 후 자동 승격 (ab 모드만)"
     echo ""
@@ -79,15 +82,23 @@ run_champion() {
     local dry_run="${2:-}"
     local start="${3:-}"
     local runs="${4:-}"
+    local research="${5:-}"
 
     echo ""
     echo "━━━ A 실행: Champion (고정 프롬프트) ━━━"
     echo ""
 
+    # 로그 초기화
+    local DATE=$(date +%Y-%m-%d)
+    local RUN_DIR="${SCRIPT_DIR}/runs/${DATE}/champion"
+    if type log_init &>/dev/null; then
+        log_init "$RUN_DIR"
+    fi
+
     if [[ "$dry_run" == "--dry-run" ]]; then
-        "${PROJECT_DIR}/lib/core/suite_runner.sh" --writer=champion --suite="$suite" $start $runs --dry-run
+        "${PROJECT_DIR}/lib/core/suite_runner.sh" --writer=champion --suite="$suite" $start $runs $research --dry-run
     else
-        "${PROJECT_DIR}/lib/core/suite_runner.sh" --writer=champion --suite="$suite" $start $runs
+        "${PROJECT_DIR}/lib/core/suite_runner.sh" --writer=champion --suite="$suite" $start $runs $research
     fi
 }
 
@@ -96,15 +107,23 @@ run_challenger() {
     local dry_run="${2:-}"
     local start="${3:-}"
     local runs="${4:-}"
+    local research="${5:-}"
 
     echo ""
     echo "━━━ B 실행: Challenger (개선 프롬프트) ━━━"
     echo ""
 
+    # 로그 초기화
+    local DATE=$(date +%Y-%m-%d)
+    local RUN_DIR="${SCRIPT_DIR}/runs/${DATE}/challenger"
+    if type log_init &>/dev/null; then
+        log_init "$RUN_DIR"
+    fi
+
     if [[ "$dry_run" == "--dry-run" ]]; then
-        "${PROJECT_DIR}/lib/core/suite_runner.sh" --writer=challenger --suite="$suite" $start $runs --dry-run
+        "${PROJECT_DIR}/lib/core/suite_runner.sh" --writer=challenger --suite="$suite" $start $runs $research --dry-run
     else
-        "${PROJECT_DIR}/lib/core/suite_runner.sh" --writer=challenger --suite="$suite" $start $runs
+        "${PROJECT_DIR}/lib/core/suite_runner.sh" --writer=challenger --suite="$suite" $start $runs $research
     fi
 }
 
@@ -308,6 +327,7 @@ run_ab_test() {
     local dry_run="${3:-}"
     local start="${4:-}"
     local runs="${5:-}"
+    local research="${6:-}"
 
     echo ""
     echo "╔══════════════════════════════════════════════════════════════╗"
@@ -317,7 +337,7 @@ run_ab_test() {
 
     # Step 1: Champion 실행
     echo "═══ Step 1/4: Champion (A) 실행 ═══"
-    run_champion "$suite" "$dry_run" "$start" "$runs"
+    run_champion "$suite" "$dry_run" "$start" "$runs" "$research"
 
     # Step 2: Critic 분석 및 Challenger 프롬프트 생성
     echo ""
@@ -326,7 +346,7 @@ run_ab_test() {
 
     echo ""
     echo "═══ Step 3/4: Challenger (B) 실행 ═══"
-    run_challenger "$suite" "$dry_run" "$start" "$runs"
+    run_challenger "$suite" "$dry_run" "$start" "$runs" "$research"
 
     echo ""
     echo "═══ Step 4/4: 결과 비교 ═══"
@@ -355,7 +375,10 @@ SUITE="suite-5"
 DRY_RUN=""
 AUTO_PROMOTE=""
 START_FROM=""
+FROM_SECTION=""
+FROM_VERSION=""  # 버전 시작 번호 (예: --from=s1_2:3 → 3)
 RUNS="--runs=5"  # 기본 5회 반복
+RESEARCH=""
 
 shift || true
 
@@ -363,6 +386,20 @@ while [[ $# -gt 0 ]]; do
     case $1 in
         --suite=*)
             SUITE="${1#*=}"
+            shift
+            ;;
+        --from=*)
+            from_value="${1#*=}"
+            # s1_2:v3 또는 s1_2:3 형태 지원
+            if [[ "$from_value" == *:* ]]; then
+                FROM_SECTION="${from_value%%:*}"
+                version_part="${from_value#*:}"
+                # v3 또는 3 형태 모두 지원
+                FROM_VERSION="${version_part#v}"
+            else
+                FROM_SECTION="$from_value"
+                FROM_VERSION=""
+            fi
             shift
             ;;
         --start=*)
@@ -381,6 +418,10 @@ while [[ $# -gt 0 ]]; do
             AUTO_PROMOTE="--auto-promote"
             shift
             ;;
+        --research)
+            RESEARCH="--research"
+            shift
+            ;;
         *)
             echo "알 수 없는 옵션: $1"
             exit 1
@@ -389,18 +430,130 @@ while [[ $# -gt 0 ]]; do
 done
 
 # ══════════════════════════════════════════════════════════════
+# --from 옵션 처리: 해당 섹션부터 끝까지 순차 실행
+# ══════════════════════════════════════════════════════════════
+
+get_sections_from() {
+    local from_section="$1"
+    local sections_file="${PROJECT_DIR}/sections.yaml"
+
+    if [[ ! -f "$sections_file" ]]; then
+        echo "s1_1 s1_2 s1_3 s2_1 s2_2 s3_1 s3_2 s3_3"  # fallback
+        return
+    fi
+
+    python3 -c "
+import yaml
+
+with open('$sections_file', 'r') as f:
+    data = yaml.safe_load(f)
+
+sections = data.get('sections', [])
+# needs_human=false인 섹션만, order 순으로 정렬
+auto_sections = sorted(
+    [s for s in sections if not s.get('needs_human', False) and s.get('id', '').startswith('s')],
+    key=lambda x: x.get('order', 999)
+)
+
+ids = [s['id'] for s in auto_sections]
+
+# from_section 이후만 출력
+try:
+    start_idx = ids.index('$from_section')
+    print(' '.join(ids[start_idx:]))
+except ValueError:
+    print(' '.join(ids))  # 못 찾으면 전체 출력
+" 2>/dev/null
+}
+
+run_from_section() {
+    local from_section="$1"
+    local mode="$2"  # champion or challenger
+    local dry_run="$3"
+    local runs="$4"
+    local research="$5"
+    local start_version="$6"  # 버전 시작 번호 (예: 3이면 v3부터)
+
+    local version_info=""
+    local start_version_opt=""
+    if [[ -n "$start_version" ]]; then
+        version_info=":v${start_version}"
+        start_version_opt="--start-version=${start_version}"
+    fi
+
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  --from=${from_section}${version_info}: 해당 섹션부터 끝까지 실행"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+    echo ""
+
+    local sections
+    sections=$(get_sections_from "$from_section")
+
+    echo "실행할 섹션: $sections"
+    if [[ -n "$start_version" ]]; then
+        echo "시작 버전: v${start_version}"
+    fi
+    echo ""
+
+    local is_first_section=true
+    for section_id in $sections; do
+        local suite_name="suite-${section_id}"
+        local suite_file="${SCRIPT_DIR}/suites/${suite_name}.yaml"
+
+        echo ""
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+        echo "  섹션: $section_id (suite: $suite_name)"
+        echo "━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━"
+
+        # suite 파일 존재 확인
+        if [[ ! -f "$suite_file" ]]; then
+            echo "⚠️  Suite 파일 없음: $suite_file (스킵)"
+            continue
+        fi
+
+        # 첫 번째 섹션에서만 start_version 적용, 이후 섹션은 v1부터
+        local current_start_opt=""
+        if [[ "$is_first_section" == true ]] && [[ -n "$start_version_opt" ]]; then
+            current_start_opt="$start_version_opt"
+        fi
+
+        if [[ "$mode" == "champion" ]]; then
+            run_champion "$suite_name" "$dry_run" "$current_start_opt" "$runs" "$research"
+        else
+            run_challenger "$suite_name" "$dry_run" "$current_start_opt" "$runs" "$research"
+        fi
+
+        is_first_section=false
+    done
+
+    echo ""
+    echo "╔══════════════════════════════════════════════════════════════╗"
+    echo "║  --from=${from_section}${version_info} 완료"
+    echo "╚══════════════════════════════════════════════════════════════╝"
+}
+
+# ══════════════════════════════════════════════════════════════
 # 메인
 # ══════════════════════════════════════════════════════════════
 
 case "$MODE" in
     ab|AB|1)
-        run_ab_test "$SUITE" "$AUTO_PROMOTE" "$DRY_RUN" "$START_FROM" "$RUNS"
+        run_ab_test "$SUITE" "$AUTO_PROMOTE" "$DRY_RUN" "$START_FROM" "$RUNS" "$RESEARCH"
         ;;
     a|A|champion|2)
-        run_champion "$SUITE" "$DRY_RUN" "$START_FROM" "$RUNS"
+        if [[ -n "$FROM_SECTION" ]]; then
+            run_from_section "$FROM_SECTION" "champion" "$DRY_RUN" "$RUNS" "$RESEARCH" "$FROM_VERSION"
+        else
+            run_champion "$SUITE" "$DRY_RUN" "$START_FROM" "$RUNS" "$RESEARCH"
+        fi
         ;;
     b|B|challenger|3)
-        run_challenger "$SUITE" "$DRY_RUN" "$START_FROM" "$RUNS"
+        if [[ -n "$FROM_SECTION" ]]; then
+            run_from_section "$FROM_SECTION" "challenger" "$DRY_RUN" "$RUNS" "$RESEARCH" "$FROM_VERSION"
+        else
+            run_challenger "$SUITE" "$DRY_RUN" "$START_FROM" "$RUNS" "$RESEARCH"
+        fi
         ;;
     help|--help|-h|"")
         show_help

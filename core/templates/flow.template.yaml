@@ -1,0 +1,134 @@
+# Flow 정의 템플릿
+# 새 프로젝트 생성 시 이 파일을 복사하여 수정
+#
+# 사용법:
+#   1. 프로젝트 폴더에 flow.yaml로 복사
+#   2. 프로젝트에 맞게 수정
+#   3. ./run.sh 또는 flow_runner.sh로 실행
+
+name: "{PROJECT_NAME}"
+version: 1
+description: "프로젝트 설명"
+
+# ══════════════════════════════════════════════════════════════
+# 탭 구성
+# ══════════════════════════════════════════════════════════════
+# ChatGPT 탭 정의 (Chrome에서 열린 탭 순서)
+tabs:
+  research:
+    tab: 1
+    name: "리서치"
+    mode: deep_research    # normal, deep_research, new_chat
+    purpose: "시장조사, 통계, 일반 질의"
+
+  writer:
+    tab: 2
+    name: "Writer"
+    mode: normal
+    purpose: "문서 작성"
+    section_aware: true    # 섹션 변경 시 new chat
+
+  evaluator:
+    tab: 3
+    name: "Evaluator"
+    mode: new_chat         # 매번 새 채팅
+    purpose: "결과물 평가"
+
+  critic:
+    tab: 4
+    name: "Critic"
+    mode: normal
+    purpose: "프롬프트 개선, 피드백"
+
+# ══════════════════════════════════════════════════════════════
+# 변수 정의
+# ══════════════════════════════════════════════════════════════
+# 워크플로우에서 사용할 변수
+variables:
+  topic:
+    description: "작성 주제"
+    required: true
+
+  section_name:
+    description: "섹션 이름"
+    required: true
+
+  pages:
+    description: "분량 (페이지)"
+    default: "1.5"
+
+# ══════════════════════════════════════════════════════════════
+# 워크플로우 단계
+# ══════════════════════════════════════════════════════════════
+steps:
+  # 1단계: 리서치 (선택)
+  - id: research
+    name: "시장 리서치"
+    tab: research
+    enabled: false         # --research 옵션으로 활성화
+    prompt: "prompts/research/{research_type}.md"
+    output: "research/{research_type}.md"
+    timeout: 300
+    cache: true            # 결과 캐싱 (이미 있으면 스킵)
+
+  # 2단계: 작성
+  - id: write
+    name: "초안 작성"
+    tab: writer
+    prompt: "prompts/writer/main.md"
+    variables:
+      - topic
+      - section_name
+      - pages
+    inject:                # 프롬프트에 주입할 추가 컨텐츠
+      - source: "$research.output"
+        condition: "$research.enabled"
+        label: "리서치 결과"
+    output: "outputs/{section_id}_draft.md"
+    timeout: 180
+    retry: 3
+
+  # 3단계: 평가
+  - id: evaluate
+    name: "평가"
+    tab: evaluator
+    prompt: "prompts/evaluator/main.md"
+    input: "$write.output"
+    output: "outputs/{section_id}_eval.json"
+    timeout: 120
+    retry: 3
+    parse: json            # 응답 파싱 형식
+
+  # 4단계: 개선 (조건부)
+  - id: improve
+    name: "프롬프트 개선"
+    tab: critic
+    condition: "$evaluate.score < 85"
+    prompt: "prompts/critic/improve.md"
+    input:
+      - "$write.output"
+      - "$evaluate.output"
+    output: "prompts/writer/improved.md"
+    timeout: 90
+
+# ══════════════════════════════════════════════════════════════
+# 설정
+# ══════════════════════════════════════════════════════════════
+settings:
+  # ChatGPT 프로젝트 URL (new_chat 시 사용)
+  project_url: ""
+
+  # 기본 타임아웃 (초)
+  default_timeout: 90
+
+  # 재시도 설정
+  retry:
+    max_attempts: 3
+    delay: 2
+    new_chat_on_fail: true
+
+  # 출력 디렉토리
+  output_dir: "outputs"
+
+  # 로그 레벨
+  log_level: "info"

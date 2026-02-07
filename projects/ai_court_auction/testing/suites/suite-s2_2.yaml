@@ -1,0 +1,56 @@
+# Suite-s2_2: 창업아이템의 실현 및 구체화 방안
+# 용도: s2_2 챕터의 Champion/Challenger 비교
+# 구성: 1개 샘플 × 5회 반복 = 5개 버전
+
+name: suite-s2_2
+description: "s2_2 실현 및 구체화 방안 테스트 (5버전)"
+version: 1
+created_at: "2026-02-07"
+
+# 섹션 메타정보
+section:
+  id: s2_2
+  name: "2-2. 실현 및 구체화 방안"
+  target: "A4 1.5p"
+  weight: 10
+
+# PDF 기반 작성 가이드
+writing_guide: |
+  ※ 목표시장(고객) 요구사항 등 분석을 통해 파악된 문제점 및 개선점에 대해 핵심 기능·성능,
+     디자인 개선, 기타 사업화 활동 등 구체적인 개발/개선 방안 등 기재
+  ※ 기존 시장 내 경쟁사 제품·서비스와의 비교를 통해 파악된 문제점에 대해 자사의 보유
+     역량을 기반으로 경쟁력, 차별성 등을 확보하기 위한 방안 등 기재
+  ※ 기타 개발/개선하고자 하는 제품·서비스 관련 기술 보호 계획 등
+
+# 평가 체크리스트
+checklist:
+  - "기술 로드맵"
+  - "개발 일정 Gantt"
+  - "핵심 기술 설명"
+  - "경쟁사 대비 차별성 확보 방안"
+  - "기술 보호 계획"
+
+# 샘플 목록
+samples:
+  - id: s2_2
+    file: samples/s2_2_case01.md
+    category: A
+    difficulty: high
+    is_golden: true
+
+# 실행 설정
+execution:
+  evaluator: frozen
+  timeout_per_sample: 180
+  max_retries: 1
+
+# 결과 저장 설정
+output:
+  save_outputs: true
+  save_evals: true
+  output_dir: "runs/{date}/{variant}/"
+
+notes: |
+  - 실현 및 구체화 방안 섹션 테스트
+  - 기술 로드맵 및 개발 계획 구체성 평가
+  - Champion 5개 + Challenger 5개 = 총 10개 생성

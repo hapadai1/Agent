@@ -32,6 +32,7 @@ SUITE="suite-5"
 DATE=$(date +%Y-%m-%d)
 DRY_RUN=false
 START_FROM=1
+START_VERSION=1  # 버전 시작 번호 (기본 1, --start-version=3 으로 v3부터 시작)
 RUNS=5  # 각 샘플당 반복 횟수 (기본 5회)
 ENABLE_RESEARCH=false  # 심층 리서치 활성화 (--research 옵션으로 켬)
 
@@ -57,6 +58,10 @@ while [[ $# -gt 0 ]]; do
             START_FROM="${1#*=}"
             shift
             ;;
+        --start-version=*)
+            START_VERSION="${1#*=}"
+            shift
+            ;;
         --runs=*)
             RUNS="${1#*=}"
             shift
@@ -65,8 +70,13 @@ while [[ $# -gt 0 ]]; do
             DRY_RUN=true
             shift
             ;;
+        # --research 옵션 비활성화 (리서치 자동 실행 방지)
+        # --research)
+        #     ENABLE_RESEARCH=true
+        #     shift
+        #     ;;
         --research)
-            ENABLE_RESEARCH=true
+            echo "WARNING: --research 옵션은 비활성화되었습니다." >&2
             shift
             ;;
         *)
@@ -173,23 +183,30 @@ for s in samples:
 # ══════════════════════════════════════════════════════════════
 
 RESEARCH_DIR="${PROJECT_DIR}/research"
+RESEARCH_PROMPTS_DIR="${PROJECT_DIR}/research/prompts"
+RESEARCH_RESPONSES_DIR="${PROJECT_DIR}/research/responses"
 
-# 리서치 결과 파일 경로 반환
+# 리서치 응답 파일 경로 반환
 get_research_file() {
     local research_type="$1"
-    echo "${RESEARCH_DIR}/${research_type}.md"
+    echo "${RESEARCH_RESPONSES_DIR}/${research_type}.md"
 }
 
-# 리서치 결과가 존재하는지 확인
+# 리서치 결과가 존재하는지 확인 (md 또는 pdf)
 has_research_result() {
     local research_type="$1"
-    local research_file
-    research_file=$(get_research_file "$research_type")
+    local md_file="${RESEARCH_RESPONSES_DIR}/${research_type}.md"
+    local pdf_file="${RESEARCH_RESPONSES_DIR}/${research_type}.pdf"
 
-    if [[ -f "$research_file" ]]; then
-        # 파일이 있고 내용이 최소 100자 이상이면 유효한 리서치로 간주
+    # PDF 파일 확인
+    if [[ -f "$pdf_file" ]]; then
+        return 0
+    fi
+
+    # MD 파일 확인 (100자 이상)
+    if [[ -f "$md_file" ]]; then
         local size
-        size=$(wc -c < "$research_file" | tr -d ' ')
+        size=$(wc -c < "$md_file" | tr -d ' ')
         [[ "$size" -gt 100 ]]
     else
         return 1
@@ -199,11 +216,14 @@ has_research_result() {
 # 리서치 결과 로드
 load_research_result() {
     local research_type="$1"
-    local research_file
-    research_file=$(get_research_file "$research_type")
+    local md_file="${RESEARCH_RESPONSES_DIR}/${research_type}.md"
+    local pdf_file="${RESEARCH_RESPONSES_DIR}/${research_type}.pdf"
 
-    if [[ -f "$research_file" ]]; then
-        cat "$research_file"
+    # MD 파일 우선
+    if [[ -f "$md_file" ]]; then
+        cat "$md_file"
+    elif [[ -f "$pdf_file" ]]; then
+        echo "[PDF 파일: ${pdf_file}]"
     fi
 }
 
@@ -268,36 +288,45 @@ run_research() {
     fi
 
     # 리서치 디렉토리 생성
-    mkdir -p "$RESEARCH_DIR"
+    local prompts_dir="${PROJECT_DIR}/research/prompts"
+    local responses_dir="${PROJECT_DIR}/research/responses"
+    mkdir -p "$prompts_dir"
+    mkdir -p "$responses_dir"
 
     local research_prompt
     research_prompt=$(generate_research_prompt "$research_type" "$topic")
 
-    local research_file
-    research_file=$(get_research_file "$research_type")
+    local prompt_file="${prompts_dir}/${research_type}.md"
+    local response_file="${responses_dir}/${research_type}.md"
 
-    log_info "Starting deep research: $research_type (Tab $TAB_RESEARCH)"
+    # 프롬프트 파일 저장 (기록용)
+    echo "$research_prompt" > "$prompt_file"
+    log_info "Research prompt saved: $prompt_file"
+
+    # ChatGPT Tab1 (Research)로 직접 전송
+    local research_response=""
+    local research_tab="${TAB_RESEARCH:-1}"
+    local research_timeout="${TIMEOUT_RESEARCH:-300}"
 
     if type chatgpt_call &>/dev/null; then
-        local research_timeout
-        research_timeout=$(get_timeout_for "research")
-
-        # 심층 리서치 실행 (Tab1)
-        local response
-        response=$(chatgpt_call --mode=research --tab="$TAB_RESEARCH" --timeout="$research_timeout" "$research_prompt")
-
-        if [[ -n "$response" && ${#response} -gt 100 ]]; then
-            echo "$response" > "$research_file"
-            log_info "Research saved: $research_file (${#response} chars)"
-            return 0
-        else
-            log_warn "Research response too short or empty"
-            return 1
-        fi
+        log_info "Calling Research Tab (Tab $research_tab, type: $research_type)..."
+        research_response=$(chatgpt_call --tab="$research_tab" --timeout="$research_timeout" --retry "$research_prompt")
     else
-        log_error "ChatGPT not available - chatgpt_call function not found"
+        log_error "ChatGPT not available - research cannot be executed"
         return 1
     fi
+
+    # 응답 확인
+    if [[ -z "$research_response" || ${#research_response} -lt 100 ]]; then
+        log_warn "Research response too short: ${#research_response} chars"
+        return 1
+    fi
+
+    # 응답 저장
+    echo "$research_response" > "$response_file"
+    log_ok "Research response saved (${#research_response} chars): $response_file"
+
+    return 0
 }
 
 # 리서치 블록 포맷팅
@@ -519,6 +548,434 @@ LOG_EOF
 }
 
 # ══════════════════════════════════════════════════════════════
+# 검증 함수 (Watchdog)
+# ══════════════════════════════════════════════════════════════
+
+# 연속 실패 카운터 (전역)
+CONSECUTIVE_FAILURES=0
+MAX_CONSECUTIVE_FAILURES=3
+LAST_PROMPT_HASH=""
+TEST_START_TIME=""
+VERSION_START_TIME=""
+MAX_STEP_RETRIES=2  # 각 단계(Writer/Eval)별 최대 재시도 횟수
+
+# ══════════════════════════════════════════════════════════════
+# 자동 재시도 로직
+# ══════════════════════════════════════════════════════════════
+
+# Writer 재시도
+retry_writer() {
+    local sample_id="$1"
+    local sample_file="$2"
+    local previous_feedback="$3"
+    local retry_count="${4:-1}"
+
+    log_warn "Writer 재시도 ($retry_count/${MAX_STEP_RETRIES})..."
+
+    # run_sample과 동일한 로직으로 Writer만 재실행
+    local full_path="${SUITES_DIR}/${sample_file}"
+    local section_name topic body pages
+    section_name=$(parse_front_matter "$full_path" "section_name")
+    local section_id
+    section_id=$(parse_front_matter "$full_path" "section")
+    body=$(get_body "$full_path")
+    topic=$(echo "$body" | grep -A1 "^## 주제" | tail -1)
+    pages=$(echo "$body" | grep -oE "A4 [0-9.]+" | head -1 | grep -oE "[0-9.]+")
+    pages="${pages:-1.5}"
+
+    # 리서치 블록 로드
+    local research_block=""
+    local existing_research=""
+    for file in "${RESEARCH_RESPONSES_DIR}/${section_id}_"*.md; do
+        [[ -f "$file" ]] || continue
+        local filename=$(basename "$file")
+        existing_research+="
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[리서치 자료: ${filename}]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+$(cat "$file")
+
+"
+    done
+    if [[ -n "$existing_research" ]]; then
+        research_block="[제공 근거 자료]
+${existing_research}"
+    fi
+
+    # Writer 프롬프트 생성
+    local writer_prompt
+    writer_prompt=$(load_writer_prompt "$section_name" "$body" "$topic" "$pages" "$previous_feedback" "$research_block")
+
+    local out_file="${OUTPUT_DIR}/${sample_id}.out.md"
+    local prompt_file="${OUTPUT_DIR}/${sample_id}.prompt.md"
+
+    # Writer 재호출
+    local writer_response
+    local writer_tab
+    writer_tab=$(get_writer_tab "$WRITER")
+    local writer_timeout
+    writer_timeout=$(get_timeout_for "writer")
+
+    log_info "Writer 재시도 (Tab $writer_tab)..."
+    writer_response=$(chatgpt_call --tab="$writer_tab" --timeout="$writer_timeout" --retry --section="$section_id" "$writer_prompt")
+
+    echo "$writer_response" > "$out_file"
+    local output_size=${#writer_response}
+
+    if [[ $output_size -ge 500 ]]; then
+        log_ok "Writer 재시도 성공 (${output_size}자)"
+        return 0
+    else
+        log_error "Writer 재시도 실패 (${output_size}자 < 500자)"
+        return 1
+    fi
+}
+
+# Evaluator 재시도
+retry_evaluator() {
+    local sample_id="$1"
+    local retry_count="${2:-1}"
+
+    log_warn "Evaluator 재시도 ($retry_count/${MAX_STEP_RETRIES})..."
+
+    local out_file="${OUTPUT_DIR}/${sample_id}.out.md"
+    local eval_file="${OUTPUT_DIR}/${sample_id}.eval.json"
+    local eval_prompt_file="${OUTPUT_DIR}/${sample_id}.eval_prompt.md"
+
+    if [[ ! -f "$out_file" ]]; then
+        log_error "출력 파일 없음: $out_file"
+        return 1
+    fi
+
+    local writer_response
+    writer_response=$(cat "$out_file")
+
+    # section_name 추출 (프롬프트 파일에서)
+    local section_name="섹션"
+    if [[ -f "$eval_prompt_file" ]]; then
+        section_name=$(head -20 "$eval_prompt_file" | grep -oP '(?<=섹션: ).*' || echo "섹션")
+    fi
+
+    # Evaluator 프롬프트 생성
+    local evaluator_prompt
+    evaluator_prompt=$(load_evaluator_prompt "$section_name" "$writer_response")
+
+    # Evaluator 재호출
+    local eval_tab="$TAB_EVALUATOR"
+    local eval_timeout
+    eval_timeout=$(get_timeout_for "evaluator")
+
+    # 새 채팅 시작
+    log_info "Evaluator 새 채팅 시작 후 재시도 (Tab $eval_tab)..."
+    chatgpt_call --mode=new_chat --tab="$eval_tab" >/dev/null 2>&1
+    sleep 1
+
+    local eval_response
+    eval_response=$(chatgpt_call --tab="$eval_tab" --timeout="$eval_timeout" --retry "$evaluator_prompt")
+
+    # JSON 추출
+    local json_only
+    json_only=$(echo "$eval_response" | python3 -c "
+import re
+import sys
+content = sys.stdin.read()
+match = re.search(r'\`\`\`json\s*([\s\S]*?)\`\`\`', content)
+if match:
+    print(match.group(1).strip())
+else:
+    match = re.search(r'\{[\s\S]*\}', content)
+    if match:
+        print(match.group(0))
+    else:
+        print('{}')
+" 2>/dev/null)
+
+    echo "$json_only" > "$eval_file"
+
+    # 점수 확인
+    local score
+    score=$(echo "$json_only" | python3 -c "import json,sys; print(json.load(sys.stdin).get('total_score', 0))" 2>/dev/null)
+    local eval_size=${#json_only}
+
+    if [[ -n "$score" && "$score" -gt 0 && $eval_size -gt 50 ]]; then
+        log_ok "Evaluator 재시도 성공 (점수: ${score}, ${eval_size}자)"
+        echo "  Score: $score" >&2
+        return 0
+    else
+        log_error "Evaluator 재시도 실패 (점수: ${score:-0}, ${eval_size}자)"
+        return 1
+    fi
+}
+
+# 품질 검사 및 자동 재시도
+check_and_retry() {
+    local sample_id="$1"
+    local sample_file="$2"
+    local previous_feedback="$3"
+
+    local out_file="${OUTPUT_DIR}/${sample_id}.out.md"
+    local eval_file="${OUTPUT_DIR}/${sample_id}.eval.json"
+
+    local writer_ok=false
+    local eval_ok=false
+
+    # Writer 출력 확인
+    if [[ -f "$out_file" ]]; then
+        local output_size
+        output_size=$(wc -c < "$out_file" | tr -d ' ')
+        if [[ $output_size -ge 500 ]]; then
+            writer_ok=true
+        fi
+    fi
+
+    # Eval 출력 확인
+    if [[ -f "$eval_file" ]]; then
+        local eval_size
+        eval_size=$(wc -c < "$eval_file" | tr -d ' ')
+        local score
+        score=$(python3 -c "import json; print(json.load(open('$eval_file')).get('total_score', 0))" 2>/dev/null || echo "0")
+        if [[ $eval_size -gt 50 && -n "$score" && "$score" -gt 0 ]]; then
+            eval_ok=true
+        fi
+    fi
+
+    # 재시도 로직
+    local retry_count=0
+
+    # Writer 실패 시 재시도
+    while [[ "$writer_ok" != "true" && $retry_count -lt $MAX_STEP_RETRIES ]]; do
+        ((retry_count++))
+        if retry_writer "$sample_id" "$sample_file" "$previous_feedback" "$retry_count"; then
+            writer_ok=true
+            eval_ok=false  # Writer가 변경되면 Eval도 다시 해야 함
+        fi
+    done
+
+    # Writer 성공 후 Eval 실패 시 재시도
+    retry_count=0
+    while [[ "$writer_ok" == "true" && "$eval_ok" != "true" && $retry_count -lt $MAX_STEP_RETRIES ]]; do
+        ((retry_count++))
+        if retry_evaluator "$sample_id" "$retry_count"; then
+            eval_ok=true
+        fi
+    done
+
+    if [[ "$writer_ok" == "true" && "$eval_ok" == "true" ]]; then
+        return 0
+    else
+        return 1
+    fi
+}
+
+# 테스트 시작 배너
+print_test_start() {
+    TEST_START_TIME=$(date +%s)
+    local start_datetime=$(date '+%Y-%m-%d %H:%M:%S')
+
+    echo "" >&2
+    echo "╔══════════════════════════════════════════════════════════════╗" >&2
+    echo "║  🚀 테스트 시작                                              ║" >&2
+    echo "╠══════════════════════════════════════════════════════════════╣" >&2
+    echo "║  시작 시간: $start_datetime                            ║" >&2
+    echo "║  Suite:     $SUITE                                           ║" >&2
+    echo "║  Writer:    $WRITER                                          ║" >&2
+    echo "║  Evaluator: $EVALUATOR                                       ║" >&2
+    echo "║  Runs:      $RUNS 버전                                       ║" >&2
+    echo "║  출력 경로: $OUTPUT_DIR                                      ║" >&2
+    echo "╚══════════════════════════════════════════════════════════════╝" >&2
+    echo "" >&2
+}
+
+# 테스트 종료 배너
+print_test_end() {
+    local success="$1"
+    local total="$2"
+    local end_time=$(date +%s)
+    local duration=$((end_time - TEST_START_TIME))
+    local minutes=$((duration / 60))
+    local seconds=$((duration % 60))
+    local end_datetime=$(date '+%Y-%m-%d %H:%M:%S')
+
+    echo "" >&2
+    echo "╔══════════════════════════════════════════════════════════════╗" >&2
+    echo "║  🏁 테스트 종료                                              ║" >&2
+    echo "╠══════════════════════════════════════════════════════════════╣" >&2
+    echo "║  종료 시간: $end_datetime                            ║" >&2
+    echo "║  소요 시간: ${minutes}분 ${seconds}초                        ║" >&2
+    echo "║  성공률:    $success / $total                                ║" >&2
+    echo "╚══════════════════════════════════════════════════════════════╝" >&2
+}
+
+# 버전 시작 로그
+print_version_start() {
+    local run_num="$1"
+    local sample_id="$2"
+    VERSION_START_TIME=$(date +%s)
+    local start_time=$(date '+%H:%M:%S')
+
+    echo "" >&2
+    echo "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓" >&2
+    echo "┃  📝 버전 v$run_num 시작 [$start_time]                        ┃" >&2
+    echo "┃  Sample: $sample_id                                          ┃" >&2
+    echo "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛" >&2
+}
+
+# 버전 종료 로그
+print_version_end() {
+    local run_num="$1"
+    local score="$2"
+    local end_time=$(date +%s)
+    local duration=$((end_time - VERSION_START_TIME))
+    local end_clock=$(date '+%H:%M:%S')
+
+    echo "" >&2
+    echo "┏━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┓" >&2
+    echo "┃  ✅ 버전 v$run_num 완료 [$end_clock] (${duration}초)         ┃" >&2
+    echo "┃  점수: ${score}점                                            ┃" >&2
+    echo "┗━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━┛" >&2
+}
+
+validate_version() {
+    local run_num="$1"
+    local sample_id="$2"
+    local output_file="$3"
+    local eval_file="$4"
+    local prompt_file="${PROMPTS_DIR}/writer/challenger.md"
+    local version_dir="${PROMPTS_DIR}/challenger"
+    local version_file="${version_dir}/v${run_num}.md"
+
+    local errors=()
+    local warnings=()
+    local checks_passed=0
+    local checks_total=0
+
+    local check_time=$(date '+%H:%M:%S')
+    echo "" >&2
+    echo "  ┌─ 🔍 Watchdog 검증 [v$run_num] @ $check_time ────────────" >&2
+
+    # 1. Tab5 프롬프트 생성 확인 (v2부터)
+    if [[ "$WRITER" == "challenger" && $run_num -gt 1 ]]; then
+        ((checks_total++))
+        echo "  │ [1/5] Tab5 프롬프트 파일 확인 중..." >&2
+        if [[ ! -f "$version_file" ]]; then
+            errors+=("Tab5 실패: 프롬프트 v${run_num} 파일 미생성")
+            echo "  │       ❌ 파일 없음: $version_file" >&2
+        else
+            ((checks_passed++))
+            local prompt_size=$(wc -c < "$version_file" | tr -d ' ')
+            echo "  │       ✅ 생성됨 (${prompt_size}자)" >&2
+        fi
+    fi
+
+    # 2. 프롬프트 변경 확인 (v2부터)
+    if [[ "$WRITER" == "challenger" && $run_num -gt 1 && -f "$prompt_file" ]]; then
+        ((checks_total++))
+        echo "  │ [2/5] 프롬프트 변경 여부 확인 중..." >&2
+        local current_hash
+        current_hash=$(md5 -q "$prompt_file" 2>/dev/null || md5sum "$prompt_file" | cut -d' ' -f1)
+
+        if [[ -n "$LAST_PROMPT_HASH" && "$current_hash" == "$LAST_PROMPT_HASH" ]]; then
+            warnings+=("프롬프트 미변경: v$((run_num-1))과 동일 hash")
+            echo "  │       ⚠️  미변경 (hash: ${current_hash:0:8}...)" >&2
+        else
+            ((checks_passed++))
+            echo "  │       ✅ 변경됨 (hash: ${current_hash:0:8}...)" >&2
+        fi
+        LAST_PROMPT_HASH="$current_hash"
+    elif [[ "$WRITER" == "challenger" && $run_num -eq 1 && -f "$prompt_file" ]]; then
+        LAST_PROMPT_HASH=$(md5 -q "$prompt_file" 2>/dev/null || md5sum "$prompt_file" | cut -d' ' -f1)
+        echo "  │ [2/5] 초기 프롬프트 hash 저장: ${LAST_PROMPT_HASH:0:8}..." >&2
+    fi
+
+    # 3. 출력 품질 확인
+    ((checks_total++))
+    echo "  │ [3/5] Writer 출력 품질 확인 중..." >&2
+    if [[ -f "$output_file" ]]; then
+        local output_size
+        output_size=$(wc -c < "$output_file" | tr -d ' ')
+
+        if [[ $output_size -lt 500 ]]; then
+            errors+=("출력 품질 불량: ${output_size}자 (최소 500자)")
+            echo "  │       ❌ 불량 (${output_size}자 < 500자 최소)" >&2
+            ((CONSECUTIVE_FAILURES++))
+        else
+            ((checks_passed++))
+            echo "  │       ✅ 정상 (${output_size}자)" >&2
+            CONSECUTIVE_FAILURES=0
+        fi
+    else
+        errors+=("출력 파일 없음")
+        echo "  │       ❌ 파일 없음: $output_file" >&2
+        ((CONSECUTIVE_FAILURES++))
+    fi
+
+    # 4. 평가 점수 확인
+    ((checks_total++))
+    echo "  │ [4/5] Evaluator 평가 점수 확인 중..." >&2
+    if [[ -f "$eval_file" ]]; then
+        local score
+        score=$(python3 -c "import json; print(json.load(open('$eval_file')).get('total_score', 0))" 2>/dev/null)
+
+        if [[ -n "$score" && "$score" -gt 0 ]]; then
+            ((checks_passed++))
+            echo "  │       ✅ 점수: ${score}점" >&2
+            # 버전 종료 로그
+            print_version_end "$run_num" "$score"
+        else
+            warnings+=("평가 점수 0점")
+            echo "  │       ⚠️  점수: 0점 또는 파싱 실패" >&2
+        fi
+    else
+        warnings+=("평가 파일 없음")
+        echo "  │       ⚠️  파일 없음: $eval_file" >&2
+    fi
+
+    # 5. 연속 실패 확인
+    ((checks_total++))
+    echo "  │ [5/5] 연속 실패 카운터 확인 중..." >&2
+    if [[ $CONSECUTIVE_FAILURES -ge $MAX_CONSECUTIVE_FAILURES ]]; then
+        errors+=("연속 실패 ${CONSECUTIVE_FAILURES}회 → 자동 중단")
+        echo "  │       ❌ ${CONSECUTIVE_FAILURES}회 연속 실패 (한계: $MAX_CONSECUTIVE_FAILURES)" >&2
+    else
+        ((checks_passed++))
+        echo "  │       ✅ 연속 실패: ${CONSECUTIVE_FAILURES}회 (한계: $MAX_CONSECUTIVE_FAILURES)" >&2
+    fi
+
+    # 요약
+    echo "  ├────────────────────────────────────────────────" >&2
+    echo "  │ 📊 검증 결과: ${checks_passed}/${checks_total} 통과" >&2
+
+    if [[ ${#warnings[@]} -gt 0 ]]; then
+        echo "  │ ⚠️  경고 ${#warnings[@]}건:" >&2
+        for warn in "${warnings[@]}"; do
+            echo "  │     - $warn" >&2
+        done
+    fi
+
+    if [[ ${#errors[@]} -gt 0 ]]; then
+        echo "  │ ❌ 오류 ${#errors[@]}건:" >&2
+        for err in "${errors[@]}"; do
+            echo "  │     - $err" >&2
+        done
+    fi
+
+    echo "  └────────────────────────────────────────────────" >&2
+
+    # 치명적 오류 시 중단
+    if [[ ${#errors[@]} -gt 0 ]]; then
+        if [[ $CONSECUTIVE_FAILURES -ge $MAX_CONSECUTIVE_FAILURES ]]; then
+            echo "" >&2
+            echo "🛑 Watchdog: 연속 ${CONSECUTIVE_FAILURES}회 실패로 테스트 자동 중단" >&2
+            echo "   마지막 오류: ${errors[-1]}" >&2
+            return 2  # 중단 신호
+        fi
+        return 1  # 오류 있음 (계속 진행)
+    fi
+
+    return 0  # 정상
+}
+
+# ══════════════════════════════════════════════════════════════
 # 메인 실행 로직
 # ══════════════════════════════════════════════════════════════
 
@@ -558,22 +1015,43 @@ run_sample() {
     pages=$(echo "$body" | grep -oE "A4 [0-9.]+" | head -1 | grep -oE "[0-9.]+")
     pages="${pages:-1.5}"
 
-    # 리서치 실행 및 블록 생성 (--research 옵션 필요)
+    # 리서치 블록 생성
+    # 1. 기존 리서치 파일이 있으면 로드 (s1_2_*.md 패턴)
+    # 2. --research 옵션이 있고 파일이 없으면 새로 실행
     local research_block=""
-    if [[ "$ENABLE_RESEARCH" == "true" && -n "$research_type" ]]; then
-        log_info "Research required: $research_type"
 
-        # 리서치 실행 (이미 있으면 스킵)
-        run_research "$research_type" "$topic"
+    # 먼저 기존 리서치 파일 확인 (section_id 기반: s1_2_*.md)
+    local existing_research=""
+    for file in "${RESEARCH_RESPONSES_DIR}/${section_id}_"*.md; do
+        [[ -f "$file" ]] || continue
+        local filename=$(basename "$file")
+        existing_research+="
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+[리서치 자료: ${filename}]
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+$(cat "$file")
 
-        # 리서치 결과 블록 생성
-        research_block=$(format_research_block "$research_type")
+"
+    done
 
-        if [[ -n "$research_block" ]]; then
-            log_info "Research block loaded (${#research_block} chars)"
-        fi
-    elif [[ -n "$research_type" ]]; then
-        log_info "Research skipped (use --research to enable): $research_type"
+    if [[ -n "$existing_research" ]]; then
+        research_block="[제공 근거 자료]
+${existing_research}"
+        log_info "기존 리서치 로드됨 (${#research_block} chars, pattern: ${section_id}_*.md)"
+    # 리서치 자동 실행 비활성화 (수동으로 research/responses/에 파일 추가 필요)
+    # elif [[ "$ENABLE_RESEARCH" == "true" && -n "$research_type" ]]; then
+    #     log_info "Research required: $research_type"
+    #
+    #     # 리서치 실행 (이미 있으면 스킵)
+    #     run_research "$research_type" "$topic"
+    #
+    #     # 리서치 결과 블록 생성
+    #     research_block=$(format_research_block "$research_type")
+    #
+    #     if [[ -n "$research_block" ]]; then
+    #         log_info "Research block loaded (${#research_block} chars)"
+    #     fi
+    # fi
     fi
 
     # Writer 프롬프트 생성 (이전 피드백 + 리서치 블록 포함)
@@ -583,12 +1061,18 @@ run_sample() {
     # 출력 파일 경로
     local out_file="${OUTPUT_DIR}/${sample_id}.out.md"
     local eval_file="${OUTPUT_DIR}/${sample_id}.eval.json"
+    local prompt_file="${OUTPUT_DIR}/${sample_id}.prompt.md"
+    local eval_prompt_file="${OUTPUT_DIR}/${sample_id}.eval_prompt.md"
 
     if [[ "$DRY_RUN" == "true" ]]; then
         echo "  [DRY-RUN] Would generate: $out_file" >&2
         echo "  [DRY-RUN] Writer prompt length: ${#writer_prompt}" >&2
         return 0
     fi
+
+    # Writer 프롬프트 저장
+    echo "$writer_prompt" > "$prompt_file"
+    log_info "Writer 프롬프트 저장 (${#writer_prompt}자): $(basename "$prompt_file")"
 
     # ChatGPT로 Writer 실행 (통합 chatgpt_call 사용)
     local writer_response
@@ -612,6 +1096,10 @@ run_sample() {
     # Evaluator 프롬프트 생성
     local evaluator_prompt
     evaluator_prompt=$(load_evaluator_prompt "$section_name" "$writer_response")
+
+    # Evaluator 프롬프트 저장
+    echo "$evaluator_prompt" > "$eval_prompt_file"
+    log_info "Evaluator 프롬프트 저장 (${#evaluator_prompt}자): $(basename "$eval_prompt_file")"
 
     # ChatGPT로 Evaluator 실행 (통합 chatgpt_call 사용)
     local eval_response
@@ -686,18 +1174,8 @@ run_suite() {
         exit 1
     fi
 
-    echo "╔══════════════════════════════════════════════╗"
-    echo "║         Suite Runner                         ║"
-    echo "╚══════════════════════════════════════════════╝"
-    echo ""
-    echo "Suite:     $SUITE"
-    echo "Writer:    $WRITER"
-    echo "Evaluator: $EVALUATOR"
-    echo "Date:      $DATE"
-    echo "Output:    $OUTPUT_DIR"
-    echo "Start:     $START_FROM"
-    echo "Runs:      $RUNS (각 샘플당 반복 횟수)"
-    echo ""
+    # 테스트 시작 배너
+    print_test_start
 
     # 출력 디렉토리 생성
     mkdir -p "$OUTPUT_DIR"
@@ -732,10 +1210,66 @@ run_suite() {
             local section_id
             section_id=$(parse_front_matter "$full_path" "section")
 
-            for run_num in $(seq 1 $RUNS); do
+            # START_VERSION > 1이면 이전 버전의 피드백 로드
+            if [[ $START_VERSION -gt 1 ]]; then
+                local prev_version=$((START_VERSION - 1))
+                local prev_out_file="${OUTPUT_DIR}/${sample_id}_v${prev_version}.out.md"
+                local prev_eval_file="${OUTPUT_DIR}/${sample_id}_v${prev_version}.eval.json"
+
+                if [[ -f "$prev_out_file" ]]; then
+                    previous_output=$(head -80 "$prev_out_file")
+                    log_info "이전 버전(v${prev_version}) 출력 로드: $(basename "$prev_out_file")"
+                fi
+
+                if [[ -f "$prev_eval_file" ]]; then
+                    previous_eval_json=$(cat "$prev_eval_file")
+                    previous_feedback=$(python3 -c "
+import json
+try:
+    with open('$prev_eval_file', 'r') as f:
+        data = json.load(f)
+
+    score = data.get('total_score', 0)
+    tags = data.get('defect_tags', [])
+    weaknesses = data.get('weaknesses', [])
+    priority_fix = data.get('priority_fix', '')
+
+    feedback = f'이전 점수: {score}점\n'
+
+    if tags:
+        feedback += f'결함 태그: {\", \".join(tags)}\n'
+
+    if weaknesses:
+        feedback += '주요 약점:\n'
+        for w in weaknesses[:3]:
+            issue = w.get('issue', '')[:150]
+            fix = w.get('fix', '')[:150]
+            feedback += f'- 문제: {issue}\n  해결: {fix}\n'
+
+    if priority_fix:
+        feedback += f'최우선 개선: {priority_fix[:200]}'
+
+    print(feedback)
+except Exception as e:
+    print('')
+" 2>/dev/null)
+                    log_info "이전 버전(v${prev_version}) 피드백 로드: $(basename "$prev_eval_file")"
+                else
+                    log_warn "이전 버전(v${prev_version}) 평가 파일 없음 - 피드백 없이 진행"
+                fi
+            fi
+
+            for run_num in $(seq $START_VERSION $RUNS); do
                 ((total++))
                 local run_sample_id="${sample_id}_v${run_num}"
-                echo "  [v$run_num/$RUNS] Processing: $sample_id (section: $section_id)"
+
+                # 로그 컨텍스트 설정
+                if type log_set_context &>/dev/null; then
+                    log_set_context "$sample_id" "v${run_num}"
+                fi
+
+                # 버전 시작 로그
+                print_version_start "$run_num" "$sample_id"
 
                 # Challenger 모드: v2부터 Tab5로 프롬프트 개선
                 if [[ "$WRITER" == "challenger" && $run_num -gt 1 && -n "$previous_output" ]]; then
@@ -746,6 +1280,11 @@ run_suite() {
                 # 이전 피드백을 포함하여 실행
                 if run_sample "$run_sample_id" "$sample_file" "$previous_feedback"; then
                     ((success++))
+                fi
+
+                # 품질 검사 및 자동 재시도
+                if ! check_and_retry "$run_sample_id" "$sample_file" "$previous_feedback"; then
+                    log_warn "품질 검사 실패 - 재시도 한계 도달 (v${run_num})"
                 fi
 
                 # 다음 차수를 위해 결과 저장
@@ -791,14 +1330,22 @@ except Exception as e:
     print('')
 " 2>/dev/null)
                 fi
+
+                # Watchdog 검증
+                validate_version "$run_num" "$sample_id" "$out_file" "$eval_file"
+                local validate_result=$?
+
+                if [[ $validate_result -eq 2 ]]; then
+                    echo "🛑 테스트 중단됨 (Watchdog)" >&2
+                    break 2  # 전체 루프 종료
+                fi
             done
             echo ""
         fi
     done <<< "$samples"
 
-    echo "════════════════════════════════════════"
-    echo "Completed: $success / $total runs (${RUNS} runs × samples)"
-    echo "Results saved to: $OUTPUT_DIR"
+    # 테스트 종료 배너
+    print_test_end "$success" "$total"
 
     # 요약 JSON 생성
     generate_summary

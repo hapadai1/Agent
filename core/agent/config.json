@@ -1,0 +1,40 @@
+{
+  "hard_gate": {
+    "generate": {
+      "min_output_length": 1200,
+      "max_domain_repeat": 10,
+      "max_url_line_ratio": 0.3,
+      "required_keywords": ["배경", "문제", "필요성", "해결", "기대효과"],
+      "required_keyword_min": 3,
+      "forbidden_tokens": ["테스트", "TODO", "placeholder", "--- 끝 ---", "USER_INPUT_NEEDED", "Q1:", "Q2:", "원하시면", "추가로", "참고로"]
+    },
+    "eval": {
+      "require_json_parse": true,
+      "require_score_nonzero": true,
+      "require_defect_tags_if_low_score": true,
+      "low_score_threshold": 80
+    }
+  },
+  "retry": {
+    "generate_max": 3,
+    "eval_max": 2,
+    "cooldown_seconds": 60,
+    "timeout_seconds": 45
+  },
+  "soft_gate": {
+    "checklist": [
+      "문제 → 원인 → 영향 서술이 있는가",
+      "시장/지표/수치가 2개 이상 있는가",
+      "고객 관점 검증비용/리스크가 명확한가",
+      "왜 지금인지 타당성이 있는가",
+      "참고문헌이 항목 형태로 정리됐는가"
+    ],
+    "pass_threshold": 3
+  },
+  "decisions": {
+    "PASS": 0,
+    "RETRY_SAME_CHAT": 1,
+    "RETRY_NEW_CHAT": 2,
+    "STOP": 3
+  }
+}

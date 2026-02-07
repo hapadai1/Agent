@@ -221,23 +221,43 @@ chatgpt_call() {
 # ══════════════════════════════════════════════════════════════
 
 # 새 대화 시작 (내부용)
+# 주의: 버튼 클릭 방식은 루트로 이동하므로 사용 안 함
+# 대신 PLAN_PROJECT_URL이 있으면 그쪽으로 이동
 _chatgpt_new_chat() {
     local win="$1"
     local tab="$2"
 
+    # PLAN_PROJECT_URL이 있으면 프로젝트 내 새 채팅 사용
+    if [[ -n "${PLAN_PROJECT_URL:-}" ]]; then
+        _chatgpt_new_chat_in_project "$win" "$tab" "$PLAN_PROJECT_URL"
+        return $?
+    fi
+
+    # 프로젝트 URL 없으면 현재 탭 URL에서 프로젝트 감지 시도
+    local current_url
+    current_url=$(osascript -e "tell application \"Google Chrome\" to URL of tab $tab of window $win" 2>/dev/null)
+
+    if [[ "$current_url" == *"/g/g-p"* ]] || [[ "$current_url" == *"/project/"* ]]; then
+        # 채팅 ID 제거하고 프로젝트 기본 URL 추출
+        local base_url
+        base_url=$(echo "$current_url" | sed 's|/c/[^/]*$||')
+        _chatgpt_new_chat_in_project "$win" "$tab" "$base_url"
+        return $?
+    fi
+
+    # 그 외: 버튼 클릭 (fallback, 비권장)
+    echo "WARNING: 프로젝트 URL 없음. 버튼 클릭 시도 (루트로 이동 가능)" >&2
     osascript <<NEWEOF >/dev/null 2>&1
 tell application "Google Chrome"
     set t to tab $tab of window $win
     execute t javascript "(function(){
-        var newBtn=document.querySelector('[data-testid=create-new-chat-button]');
-        if(newBtn){newBtn.click(); return 'clicked';}
-        window.location.href='https://chatgpt.com/';
-        return 'navigated';
+        var btn = document.querySelector('[data-testid=create-new-chat-button]');
+        if(btn){btn.click(); return 'clicked';}
+        return 'not_found';
     })()"
 end tell
 NEWEOF
     sleep 2
-    echo "새 대화가 시작되었습니다." >&2
 }
 
 # 프로젝트 내 새 대화 시작 (내부용)
@@ -246,6 +266,35 @@ _chatgpt_new_chat_in_project() {
     local tab="$2"
     local project_url="$3"
 
+    # 현재 페이지가 이미 ChatGPT 채팅 페이지인지 확인
+    local current_status
+    current_status=$(osascript <<CHECKFIRSTEOF
+tell application "Google Chrome"
+    set t to tab $tab of window $win
+    set tabURL to URL of t
+    set jsResult to execute t javascript "(function(){
+        var textarea=document.getElementById('prompt-textarea');
+        if(textarea) return 'has_input';
+        var prosemirror=document.querySelector('.ProseMirror');
+        if(prosemirror) return 'has_input';
+        return 'no_input';
+    })()"
+    if tabURL contains "chatgpt" and jsResult is "has_input" then
+        return "ready"
+    else
+        return "need_nav"
+    end if
+end tell
+CHECKFIRSTEOF
+    )
+
+    # 이미 입력창이 있는 ChatGPT 페이지면 네비게이션 스킵
+    if [ "$current_status" = "ready" ]; then
+        echo "현재 페이지에서 바로 입력합니다." >&2
+        return 0
+    fi
+
+    # 입력창이 없으면 프로젝트 URL로 이동
     osascript <<PROJNEWEOF >/dev/null 2>&1
 tell application "Google Chrome"
     set t to tab $tab of window $win
@@ -294,23 +343,15 @@ tell application "Google Chrome"
     with timeout of 30 seconds
     set t to tab $tab of window $win
     set jsResult to execute t javascript "(function(){
-        var allTurns = document.querySelectorAll('article[data-testid^=\"conversation-turn\"]');
-        var assistantTurns = [];
-        allTurns.forEach(function(turn) {
-            if (!turn.querySelector('[data-message-author-role=\"user\"]')) {
-                assistantTurns.push(turn);
-            }
-        });
-        if(assistantTurns.length === 0) return 'no response';
-        var last = assistantTurns[assistantTurns.length-1];
-        var msgContainer = last.querySelector('[data-message-author-role=\"assistant\"]');
-        if(!msgContainer) msgContainer = last;
-        var md = msgContainer.querySelector('.markdown.prose');
-        if(!md) md = msgContainer.querySelector('.markdown');
-        if(!md) md = msgContainer.querySelector('.prose');
-        if(!md) md = msgContainer.querySelector('[class*=\"markdown\"]');
-        if(!md) return 'no markdown content';
-        return md.innerText || md.textContent;
+        var articles = document.querySelectorAll('article[data-testid^=\"conversation-turn\"]');
+        if(articles.length === 0) return 'no response';
+        var lastArticle = articles[articles.length - 1];
+        var text = lastArticle.innerText || '';
+        if (text.indexOf('ChatGPT') === 0) {
+            var idx = text.indexOf(':');
+            if (idx > 0 && idx < 30) text = text.substring(idx + 1);
+        }
+        return text.trim();
     })()"
     return jsResult
     end timeout
@@ -386,6 +427,42 @@ _chatgpt_send_message() {
     local win="$2"
     local tab="$3"
 
+    # 응답 생성 중인지 확인 - 생성 중이면 완료될 때까지 대기
+    local max_wait=60
+    local waited=0
+    while [ $waited -lt $max_wait ]; do
+        local is_generating
+        is_generating=$(osascript <<CHECKEOF 2>/dev/null
+tell application "Google Chrome"
+    with timeout of 10 seconds
+    set t to tab $tab of window $win
+    set jsResult to execute t javascript "(function(){
+        var stopBtn = document.querySelector('button[data-testid=\"stop-button\"]');
+        if(stopBtn) return 'generating';
+        var sendBtn = document.querySelector('button[data-testid=\"send-button\"]');
+        var speechBtn = document.querySelector('button[data-testid=\"composer-speech-button\"]');
+        if(sendBtn || speechBtn) return 'ready';
+        return 'generating';
+    })()"
+    return jsResult
+    end timeout
+end tell
+CHECKEOF
+        )
+
+        if [ "$is_generating" = "ready" ]; then
+            break
+        fi
+
+        echo "  ... 이전 응답 완료 대기 중 (${waited}초)" >&2
+        sleep 5
+        ((waited += 5))
+    done
+
+    if [ $waited -ge $max_wait ]; then
+        echo "⚠️ 이전 응답 완료 대기 타임아웃 (${max_wait}초)" >&2
+    fi
+
     # Base64 인코딩
     local b64_message
     b64_message=$(printf '%s' "$message" | base64 | tr -d '\n')
@@ -434,15 +511,40 @@ INPUTEOF
 
     sleep 1
 
-    # 전송 버튼 클릭
-    osascript <<SENDEOF >/dev/null 2>&1
+    # 전송 버튼 클릭 (재시도 포함)
+    local send_attempts=0
+    local max_send_attempts=5
+    while [ $send_attempts -lt $max_send_attempts ]; do
+        local send_result
+        send_result=$(osascript <<SENDEOF 2>/dev/null
 tell application "Google Chrome"
     with timeout of 30 seconds
     set t to tab $tab of window $win
-    execute t javascript "(function(){var btn=document.querySelector('button[data-testid=send-button]');if(btn)btn.click();})()"
+    set jsResult to execute t javascript "(function(){
+        var btn=document.querySelector('button[data-testid=\"send-button\"]');
+        if(btn) { btn.click(); return 'sent'; }
+        return 'no_button';
+    })()"
+    return jsResult
     end timeout
 end tell
 SENDEOF
+        )
+
+        if [ "$send_result" = "sent" ]; then
+            break
+        fi
+
+        ((send_attempts++))
+        if [ $send_attempts -lt $max_send_attempts ]; then
+            echo "  ... 전송 버튼 대기 중 (시도 ${send_attempts}/${max_send_attempts})" >&2
+            sleep 2
+        fi
+    done
+
+    if [ $send_attempts -ge $max_send_attempts ]; then
+        echo "⚠️ 전송 버튼을 찾을 수 없음" >&2
+    fi
 }
 
 # 메시지 전송 + 응답 대기 (내부용)
@@ -452,21 +554,14 @@ _chatgpt_send_and_wait() {
     local tab="$3"
     local wait_sec="$4"
 
-    # 현재 응답 수 저장
+    # 현재 article 개수 저장
     local before_count
     before_count=$(osascript <<COUNTEOF
 tell application "Google Chrome"
     with timeout of 30 seconds
     set t to tab $tab of window $win
     set jsResult to execute t javascript "(function(){
-        var allTurns = document.querySelectorAll('article[data-testid^=\"conversation-turn\"]');
-        var assistantCount = 0;
-        allTurns.forEach(function(turn) {
-            if (!turn.querySelector('[data-message-author-role=\"user\"]')) {
-                assistantCount++;
-            }
-        });
-        return String(assistantCount);
+        return document.querySelectorAll('article[data-testid^=\"conversation-turn\"]').length;
     })()"
     return jsResult
     end timeout
@@ -491,33 +586,59 @@ tell application "Google Chrome"
     with timeout of 30 seconds
     set t to tab $tab of window $win
     set jsResult to execute t javascript "(function(){
-        var allTurns = document.querySelectorAll('article[data-testid^=\"conversation-turn\"]');
-        var assistantTurns = [];
-        allTurns.forEach(function(turn) {
-            if (!turn.querySelector('[data-message-author-role=\"user\"]')) {
-                assistantTurns.push(turn);
-            }
-        });
-        var count = assistantTurns.length;
+        // 스트리밍 실패 감지
+        var bodyText = document.body.innerText || '';
+        if(bodyText.includes('스트리밍이 중지되었습니다') ||
+           bodyText.includes('메시지 완료를 기다리는 중') ||
+           bodyText.includes('중단되었습니다') ||
+           bodyText.includes('Something went wrong')) {
+            return '__FAILED__';
+        }
+
+        // article 개수 확인
+        var articles = document.querySelectorAll('article[data-testid^=\"conversation-turn\"]');
+        var count = articles.length;
         if(count <= ${before_count}) return '__WAITING__';
 
-        var last = assistantTurns[count-1];
-        var isStreaming = document.querySelector('button[data-testid=\"stop-button\"]');
-        var isThinking = document.querySelector('[data-testid=\"thinking-indicator\"]');
-        if(isStreaming || isThinking) return '__STREAMING__';
+        // 완료 확인: stop-button 없고 입력창이 활성화되면 완료
+        var stopBtn = document.querySelector('button[data-testid=\"stop-button\"]');
+        if(stopBtn) return '__STREAMING__';  // stop-button 있으면 아직 생성 중
 
-        var hasCompleteButtons = last.querySelector('[data-testid=\"good-response-turn-action-button\"]') ||
-                                  last.querySelector('[data-testid=\"copy-turn-action-button\"]');
-        if(!hasCompleteButtons) return '__STREAMING__';
+        // send-button 또는 composer-speech-button 있으면 완료
+        var sendBtn = document.querySelector('button[data-testid=\"send-button\"]');
+        var speechBtn = document.querySelector('button[data-testid=\"composer-speech-button\"]');
+        if(!sendBtn && !speechBtn) return '__STREAMING__';  // 둘 다 없으면 아직 로딩 중
 
-        var msgContainer = last.querySelector('[data-message-author-role=\"assistant\"]');
-        if(!msgContainer) msgContainer = last;
-        var md = msgContainer.querySelector('.markdown.prose');
-        if(!md) md = msgContainer.querySelector('.markdown');
-        if(!md) md = msgContainer.querySelector('.prose');
-        if(!md) md = msgContainer.querySelector('[class*=\"markdown\"]');
-        if(!md) return '__STREAMING__';
-        return md.innerText || md.textContent;
+        // 마지막 article에서 응답 가져오기
+        var last = articles[count - 1];
+
+        // 완료 감지: 👍👎 버튼 (feedback buttons) 존재 여부 확인
+        // 응답 완료 시에만 이 버튼들이 나타남
+        var feedbackBtns = last.querySelectorAll('button[data-testid=\"good-response-turn-action-button\"], button[data-testid=\"bad-response-turn-action-button\"]');
+        var copyBtn = last.querySelector('button[data-testid=\"copy-turn-action-button\"]');
+
+        // 완료 버튼이 없으면 아직 응답 중
+        if (feedbackBtns.length === 0 && !copyBtn) {
+            return '__GENERATING__';
+        }
+
+        // 완료됨 - 텍스트 추출
+        var text = last.innerText || '';
+        if (text.indexOf('ChatGPT') === 0) {
+            var idx = text.indexOf(':');
+            if (idx > 0 && idx < 30) text = text.substring(idx + 1);
+        }
+        text = text.trim();
+
+        // Deep Think 헤더 텍스트 제거 (완료 후 남아있는 UI 텍스트)
+        var thinkIdx = text.indexOf('동안 생각함');
+        if (thinkIdx > 0) {
+            var startCut = Math.max(0, thinkIdx - 20);
+            text = text.substring(0, startCut) + text.substring(thinkIdx + 6);
+        }
+        text = text.replace('지금 응답 받기', '').replace('ChatGPT', '').trim();
+
+        return text;
     })()"
     return jsResult
     end timeout
@@ -528,8 +649,16 @@ POLLEOF
         if [ "$response" = "__WAITING__" ]; then
             continue
         elif [ "$response" = "__STREAMING__" ]; then
-            echo "  ... 응답 생성 중 (${elapsed}초)" >&2
+            echo "  ... 응답 스트리밍 중 (${elapsed}초)" >&2
             continue
+        elif [ "$response" = "__GENERATING__" ]; then
+            echo "  ... 응답 생성 중 - 완료 버튼 대기 (${elapsed}초)" >&2
+            continue
+        elif [ "$response" = "__FAILED__" ]; then
+            echo "" >&2
+            echo "⚠️ 스트리밍 실패 감지 (${elapsed}초)" >&2
+            echo "__FAILED__"
+            return 1
         elif [ -n "$response" ] && [ "$response" != "missing value" ]; then
             echo "" >&2
             echo "━━━ ChatGPT 응답 완료 ━━━" >&2
@@ -552,9 +681,11 @@ tell application "Google Chrome"
     set t to tab $tab of window $win
     set jsResult to execute t javascript "(function(){
         var stopBtn = document.querySelector('button[data-testid=\"stop-button\"]');
-        var thinkingInd = document.querySelector('[data-testid=\"thinking-indicator\"]');
-        if(stopBtn || thinkingInd) return 'yes';
-        return 'no';
+        if(stopBtn) return 'yes';  // stop-button 있으면 아직 생성 중
+        var sendBtn = document.querySelector('button[data-testid=\"send-button\"]');
+        var speechBtn = document.querySelector('button[data-testid=\"composer-speech-button\"]');
+        if(sendBtn || speechBtn) return 'no';  // 입력 가능 상태면 완료
+        return 'yes';  // 그 외는 아직 생성 중
     })()"
     return jsResult
     end timeout
@@ -601,13 +732,15 @@ _chatgpt_send_with_retry() {
         response=$(_chatgpt_send_and_wait "$message" "$win" "$tab" "$wait_sec")
 
         # 응답 검증
-        if [[ -n "$response" && ${#response} -ge $min_len && "$response" != "no response" && "$response" != "no markdown content" && "$response" != "missing value" ]]; then
+        if [[ "$response" == "__FAILED__" ]]; then
+            echo "⚠️ 스트리밍 실패 감지됨" >&2
+        elif [[ -n "$response" && ${#response} -ge $min_len && "$response" != "no response" && "$response" != "no markdown content" && "$response" != "missing value" ]]; then
             echo "✅ 응답 수신 완료 (${#response}자)" >&2
             echo "$response"
             return 0
+        else
+            echo "⚠️ 응답 실패 또는 너무 짧음 (${#response}자, 최소 ${min_len}자 필요)" >&2
         fi
-
-        echo "⚠️ 응답 실패 또는 너무 짧음 (${#response}자, 최소 ${min_len}자 필요)" >&2
 
         if [ $attempt -lt $max_retries ]; then
             echo "🔄 새 채팅 시작 후 재시도..." >&2

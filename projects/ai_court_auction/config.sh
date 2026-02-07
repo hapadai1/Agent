@@ -30,9 +30,9 @@ export TAB_CRITIC="${TAB_CRITIC:-5}"
 # ══════════════════════════════════════════════════════════════
 # 타임아웃 설정 (초)
 # ══════════════════════════════════════════════════════════════
-export TIMEOUT_WRITER="${TIMEOUT_WRITER:-180}"
-export TIMEOUT_EVALUATOR="${TIMEOUT_EVALUATOR:-120}"
-export TIMEOUT_CRITIC="${TIMEOUT_CRITIC:-90}"
+export TIMEOUT_WRITER="${TIMEOUT_WRITER:-900}"      # 15분 (생각 확장 모드 대응)
+export TIMEOUT_EVALUATOR="${TIMEOUT_EVALUATOR:-900}"  # 15분 (생각 확장 모드 대응)
+export TIMEOUT_CRITIC="${TIMEOUT_CRITIC:-120}"        # 2분
 export TIMEOUT_RESEARCH="${TIMEOUT_RESEARCH:-300}"
 
 # ══════════════════════════════════════════════════════════════
@@ -60,14 +60,21 @@ export RUNS_DIR="${PROJECT_DIR}/runs"
 # ══════════════════════════════════════════════════════════════
 # 로깅 설정
 # ══════════════════════════════════════════════════════════════
-export LOG_LEVEL="${LOG_LEVEL:-info}"  # debug, info, warn, error
-export LOG_FILE="${LOG_FILE:-}"  # 비어있으면 stderr만 사용
+export LOG_LEVEL="${LOG_LEVEL:-INFO}"  # DEBUG, INFO, WARN, ERROR
+
+# ══════════════════════════════════════════════════════════════
+# 공통 모듈 로드
+# ══════════════════════════════════════════════════════════════
+LOGGER_SCRIPT="${PROJECT_DIR}/lib/util/logger.sh"
+if [[ -f "$LOGGER_SCRIPT" ]]; then
+    source "$LOGGER_SCRIPT"
+fi
 
 # ══════════════════════════════════════════════════════════════
 # ChatGPT 스크립트 로드
 # ══════════════════════════════════════════════════════════════
 load_chatgpt() {
-    local CHATGPT_SCRIPT="${COMMON_DIR}/chatgpt.sh"
+    CHATGPT_SCRIPT="${COMMON_DIR}/chatgpt.sh"
     if [[ -f "$CHATGPT_SCRIPT" ]]; then
         source "$CHATGPT_SCRIPT"
         return 0
@@ -76,39 +83,6 @@ load_chatgpt() {
         return 1
     fi
 }
-
-# ══════════════════════════════════════════════════════════════
-# 로깅 함수
-# ══════════════════════════════════════════════════════════════
-_log() {
-    local level="$1"
-    local msg="$2"
-    local timestamp
-    timestamp=$(date '+%H:%M:%S')
-
-    # 레벨 필터링
-    case "$LOG_LEVEL" in
-        debug) ;;
-        info) [[ "$level" == "DEBUG" ]] && return ;;
-        warn) [[ "$level" == "DEBUG" || "$level" == "INFO" ]] && return ;;
-        error) [[ "$level" != "ERROR" ]] && return ;;
-    esac
-
-    local output="[$timestamp] [$level] $msg"
-
-    # stderr 출력
-    echo "$output" >&2
-
-    # 파일 출력 (설정된 경우)
-    if [[ -n "$LOG_FILE" ]]; then
-        echo "$output" >> "$LOG_FILE"
-    fi
-}
-
-log_debug() { _log "DEBUG" "$1"; }
-log_info()  { _log "INFO" "$1"; }
-log_warn()  { _log "WARN" "$1"; }
-log_error() { _log "ERROR" "$1"; }
 
 # ══════════════════════════════════════════════════════════════
 # 탭 헬퍼 함수
