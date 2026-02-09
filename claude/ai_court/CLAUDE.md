@@ -125,7 +125,7 @@ IF 버전 < 5 AND 점수 < 85점:
 
 ### Prompt 결과 검증
 ```bash
-cat testing/runs/{DATE}/challenger/{section}_v{version}.prompt.md
+cat runtime/runs/{DATE}/challenger/{section}_v{version}.prompt.md
 ```
 
 | 항목 | 기준 | 문제 시 행동 |
@@ -135,7 +135,7 @@ cat testing/runs/{DATE}/challenger/{section}_v{version}.prompt.md
 
 ### Writer 결과 검증
 ```bash
-cat testing/runs/{DATE}/challenger/{section}_v{version}.out.md
+cat runtime/runs/{DATE}/challenger/{section}_v{version}.out.md
 ```
 
 | 항목 | 기준 | 문제 시 행동 |
@@ -146,7 +146,7 @@ cat testing/runs/{DATE}/challenger/{section}_v{version}.out.md
 
 ### Evaluator 결과 검증
 ```bash
-cat testing/runs/{DATE}/challenger/{section}_v{version}.eval.json
+cat runtime/runs/{DATE}/challenger/{section}_v{version}.eval.json
 ```
 
 | 항목 | 기준 | 문제 시 행동 |
@@ -162,7 +162,7 @@ cat testing/runs/{DATE}/challenger/{section}_v{version}.eval.json
 
 ### 현재 상태 확인
 ```bash
-cat state/current.json
+cat runtime/state/current.json
 ```
 
 ### 상태 구조
@@ -174,7 +174,7 @@ cat state/current.json
   "status": "completed",
   "timestamp": "2026-02-08T01:30:00",
   "files": {
-    "output": "testing/runs/2026-02-08/challenger/s3_1_v1.prompt.md"
+    "output": "runtime/runs/2026-02-08/challenger/s3_1_v1.prompt.md"
   },
   "metrics": {
     "output_chars": 4983,
@@ -221,9 +221,9 @@ Evaluator 결과: 87점
 | 명령어 | Claude 행동 |
 |--------|-------------|
 | "s3_1 v1부터 시작해" | Prompt v1부터 시작 |
-| "계속 진행" | state/current.json 확인 후 다음 단계 |
+| "계속 진행" | runtime/state/current.json 확인 후 다음 단계 |
 | "v2 재시도" | 해당 버전 step을 --retry로 재실행 |
-| "현재 상태" | state/current.json 출력 |
+| "현재 상태" | runtime/state/current.json 출력 |
 | "결과 확인" | 최신 출력 파일 읽고 요약 |
 
 ---
@@ -240,23 +240,28 @@ claude/ai_court/
 │   ├── challenger.sh       # Challenger 테스트
 │   └── champion.sh         # Champion 테스트
 ├── config/
-│   └── config.sh           # 설정 (타임아웃, 탭 번호 등)
+│   ├── settings.sh         # 설정 (타임아웃, 탭 번호, 경로 등)
+│   └── sections.yaml       # 섹션 정의
 ├── lib/
 │   ├── core/               # 코어 모듈
 │   └── util/               # 유틸리티 모듈
-├── state/
-│   └── current.json        # 현재 상태
-├── suites/samples/         # 섹션 정의 (s3_1_case01.md 등)
-├── runs/{DATE}/challenger/ # 실행 결과
-│   ├── s3_1_v1.prompt.md   # 생성된 프롬프트
-│   ├── s3_1_v1.out.md      # 작성된 내용
-│   ├── s3_1_v1.eval.json   # 평가 결과 (Stage 1)
-│   └── s3_1_v1.eval_stage2.json  # 평가 결과 (Stage 2)
-└── prompts/
-    ├── writer/challenger.md    # Writer 프롬프트 템플릿
-    └── evaluator/
-        ├── evaluator.md        # Stage 1 평가자
-        └── evaluator_stage2.md # Stage 2 평가자 (정부 심사 기준)
+├── data/                   # 입력 데이터
+│   ├── samples/            # 섹션별 샘플 (s3_1_case01.md 등)
+│   └── research/           # 리서치 결과
+├── runtime/                # 실행 시 생성
+│   ├── runtime/state/current.json  # 현재 상태
+│   ├── runs/{DATE}/challenger/  # 실행 결과
+│   │   ├── s3_1_v1.prompt.md
+│   │   ├── s3_1_v1.out.md
+│   │   ├── s3_1_v1.eval.json
+│   │   └── s3_1_v1.eval_stage2.json
+│   └── logs/               # 로그 파일
+├── prompts/
+│   ├── writer/challenger.md
+│   └── evaluator/
+│       ├── evaluator.md
+│       └── evaluator_stage2.md
+└── docs/                   # 참고 문서
 ```
 
 ---

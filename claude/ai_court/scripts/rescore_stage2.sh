@@ -10,8 +10,8 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 # ══════════════════════════════════════════════════════════════
 # 프로젝트 설정 로드
 # ══════════════════════════════════════════════════════════════
-if [[ -f "${PROJECT_DIR}/config/config.sh" ]]; then
-    source "${PROJECT_DIR}/config/config.sh"
+if [[ -f "${PROJECT_DIR}/config/settings.sh" ]]; then
+    source "${PROJECT_DIR}/config/settings.sh"
     load_chatgpt 2>/dev/null || true
 else
     echo "ERROR: config.sh not found" >&2
@@ -30,6 +30,7 @@ source "${PROJECT_DIR}/lib/util/template.sh"
 # ══════════════════════════════════════════════════════════════
 TARGET_DATE=""
 TARGET_SECTION=""
+TARGET_VERSION=""
 DRY_RUN=false
 SKIP_EXISTING=true
 
@@ -44,14 +45,16 @@ show_help() {
     echo ""
     echo "선택 옵션:"
     echo "  --section=ID       특정 섹션만 처리 (예: s1_2)"
+    echo "  --version=N        특정 버전만 처리 (예: 6)"
     echo "  --force            기존 eval_stage2.json 덮어쓰기"
     echo "  --dry-run          ChatGPT 호출 없이 테스트"
     echo "  --help             도움말 표시"
     echo ""
     echo "예시:"
-    echo "  ./rescore_stage2.sh --date=2026-02-09                    # 전체 재채점"
-    echo "  ./rescore_stage2.sh --date=2026-02-09 --section=s1_2     # s1_2만 재채점"
-    echo "  ./rescore_stage2.sh --date=2026-02-09 --dry-run          # 테스트"
+    echo "  ./rescore_stage2.sh --date=2026-02-09                              # 전체 재채점"
+    echo "  ./rescore_stage2.sh --date=2026-02-09 --section=s1_2               # s1_2만 재채점"
+    echo "  ./rescore_stage2.sh --date=2026-02-09 --section=s1_2 --version=6   # s1_2 v6만 재채점"
+    echo "  ./rescore_stage2.sh --date=2026-02-09 --dry-run                    # 테스트"
     echo ""
     echo "출력 파일: {section}_{version}.eval_stage2.json"
     echo ""
@@ -65,6 +68,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --section=*)
             TARGET_SECTION="${1#*=}"
+            shift
+            ;;
+        --version=*)
+            TARGET_VERSION="${1#*=}"
             shift
             ;;
         --force)
@@ -230,6 +237,7 @@ echo "║  🏛️  Stage 2 재채점 (정부 심사 기준)                    
 echo "╠══════════════════════════════════════════════════════════════╣"
 echo "║  대상 날짜: ${TARGET_DATE}"
 echo "║  대상 섹션: ${TARGET_SECTION:-전체}"
+echo "║  대상 버전: ${TARGET_VERSION:-전체}"
 echo "║  디렉토리:  ${RUNS_DIR}"
 echo "║  평가자:    evaluator_stage2.md"
 echo "║  시작 시간: $(date '+%Y-%m-%d %H:%M:%S')"
@@ -237,8 +245,12 @@ echo "╚═══════════════════════�
 echo ""
 
 # 대상 파일 찾기
-if [[ -n "$TARGET_SECTION" ]]; then
+if [[ -n "$TARGET_SECTION" && -n "$TARGET_VERSION" ]]; then
+    files=$(find "$RUNS_DIR" -name "${TARGET_SECTION}_v${TARGET_VERSION}.out.md" | sort)
+elif [[ -n "$TARGET_SECTION" ]]; then
     files=$(find "$RUNS_DIR" -name "${TARGET_SECTION}_v*.out.md" | sort)
+elif [[ -n "$TARGET_VERSION" ]]; then
+    files=$(find "$RUNS_DIR" -name "*_v${TARGET_VERSION}.out.md" | sort)
 else
     files=$(find "$RUNS_DIR" -name "*.out.md" | sort)
 fi

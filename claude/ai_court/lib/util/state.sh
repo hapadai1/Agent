@@ -6,8 +6,8 @@
 # 상태 파일 관리
 # ══════════════════════════════════════════════════════════════
 
-# 기본 상태 파일 경로 설정
-_STATE_DIR="${PROJECT_DIR:-$(pwd)}/state"
+# 기본 상태 파일 경로 설정 (Option B 구조: runtime/state)
+_STATE_DIR="${STATE_DIR:-${PROJECT_DIR:-$(pwd)}/runtime/state}"
 _STATE_FILE="${_STATE_DIR}/current.json"
 
 # 상태 디렉토리 초기화

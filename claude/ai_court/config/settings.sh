@@ -1,5 +1,5 @@
 #!/bin/bash
-# config.sh - PlanLLM 프로젝트 설정
+# settings.sh - PlanLLM 프로젝트 설정
 # 모든 스크립트에서 source 하여 사용
 
 # ══════════════════════════════════════════════════════════════
@@ -43,11 +43,25 @@ export DEFAULT_SUITE="${DEFAULT_SUITE:-suite-5}"
 export DEFAULT_RUNS="${DEFAULT_RUNS:-5}"
 
 # ══════════════════════════════════════════════════════════════
-# 경로 설정
+# 경로 설정 (Option B 구조)
 # ══════════════════════════════════════════════════════════════
-export SUITES_DIR="${PROJECT_DIR}/suites"
+# 데이터
+export DATA_DIR="${PROJECT_DIR}/data"
+export SAMPLES_DIR="${DATA_DIR}/samples"
+export RESEARCH_DIR="${DATA_DIR}/research"
+
+# 런타임 (실행 시 생성)
+export RUNTIME_DIR="${PROJECT_DIR}/runtime"
+export STATE_DIR="${RUNTIME_DIR}/state"
+export RUNS_DIR="${RUNTIME_DIR}/runs"
+export LOGS_DIR="${RUNTIME_DIR}/logs"
+
+# 기타
 export PROMPTS_DIR="${PROJECT_DIR}/prompts"
-export RUNS_DIR="${PROJECT_DIR}/runs"
+export SCRIPTS_DIR="${PROJECT_DIR}/scripts"
+
+# 하위 호환성 (deprecated - 추후 제거)
+export SUITES_DIR="${SAMPLES_DIR}"
 
 # ══════════════════════════════════════════════════════════════
 # 로깅 설정

@@ -10,8 +10,8 @@ PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 # ══════════════════════════════════════════════════════════════
 # 프로젝트 설정 로드
 # ══════════════════════════════════════════════════════════════
-if [[ -f "${PROJECT_DIR}/config/config.sh" ]]; then
-    source "${PROJECT_DIR}/config/config.sh"
+if [[ -f "${PROJECT_DIR}/config/settings.sh" ]]; then
+    source "${PROJECT_DIR}/config/settings.sh"
     load_chatgpt 2>/dev/null || true
 else
     echo "ERROR: config.sh not found" >&2

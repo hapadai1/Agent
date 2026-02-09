@@ -7,8 +7,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_DIR="$(dirname "$SCRIPT_DIR")"
 
 # 프로젝트 설정 로드
-if [[ -f "${PROJECT_DIR}/config/config.sh" ]]; then
-    source "${PROJECT_DIR}/config/config.sh"
+if [[ -f "${PROJECT_DIR}/config/settings.sh" ]]; then
+    source "${PROJECT_DIR}/config/settings.sh"
 fi
 
 # ══════════════════════════════════════════════════════════════
