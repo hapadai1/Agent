@@ -11,6 +11,25 @@ if [[ -f "${CHATGPT_SCRIPT_DIR}/chatgpt_config.sh" ]]; then
     source "${CHATGPT_SCRIPT_DIR}/chatgpt_config.sh"
 fi
 
+# v2 폴링 엔진 로드
+if [[ -f "${CHATGPT_SCRIPT_DIR}/chatgpt_poll_v2.sh" ]]; then
+    source "${CHATGPT_SCRIPT_DIR}/chatgpt_poll_v2.sh"
+fi
+
+# ══════════════════════════════════════════════════════════════
+# v2 에러 체크 헬퍼 함수
+# ══════════════════════════════════════════════════════════════
+# ChatGPT 응답이 에러 코드인지 확인
+# 사용법: if _is_chatgpt_error "$response"; then echo "에러"; fi
+_is_chatgpt_error() {
+    local response="$1"
+    [[ "$response" == "__FAILED__" || \
+       "$response" == "__STOPPED__" || \
+       "$response" == "__STUCK__" || \
+       "$response" == "__COMPLETED_BUT_EMPTY__" || \
+       "$response" == __ERROR__:* ]]
+}
+
 # 기본값 설정 (config 파일이 없는 경우)
 : "${CHATGPT_WAIT_SEC:=90}"
 : "${CHATGPT_EXTRA_WAIT:=120}"
@@ -163,9 +182,10 @@ chatgpt_call() {
             ;;
         new_chat)
             # 새 대화 시작 (프로젝트 URL: 전달값 > 환경변수 > 루트)
+            # --mode=new_chat은 명시적 요청이므로 항상 새 채팅 시작 (force=true)
             local new_chat_project_url="${project_url:-$PLAN_PROJECT_URL}"
             if [[ -n "$new_chat_project_url" ]]; then
-                _chatgpt_new_chat_in_project "$win" "$tab" "$new_chat_project_url"
+                _chatgpt_new_chat_in_project "$win" "$tab" "$new_chat_project_url" "force"
             else
                 _chatgpt_new_chat "$win" "$tab"
             fi
@@ -261,102 +281,166 @@ NEWEOF
 }
 
 # 프로젝트 내 새 대화 시작 (내부용)
+# 항상 프로젝트 URL로 이동하여 새 채팅 시작
 _chatgpt_new_chat_in_project() {
     local win="$1"
     local tab="$2"
     local project_url="$3"
 
-    # 현재 페이지가 이미 ChatGPT 채팅 페이지인지 확인
-    local current_status
-    current_status=$(osascript <<CHECKFIRSTEOF
-tell application "Google Chrome"
-    set t to tab $tab of window $win
-    set tabURL to URL of t
-    set jsResult to execute t javascript "(function(){
-        var textarea=document.getElementById('prompt-textarea');
-        if(textarea) return 'has_input';
-        var prosemirror=document.querySelector('.ProseMirror');
-        if(prosemirror) return 'has_input';
-        return 'no_input';
-    })()"
-    if tabURL contains "chatgpt" and jsResult is "has_input" then
-        return "ready"
-    else
-        return "need_nav"
-    end if
-end tell
-CHECKFIRSTEOF
-    )
-
-    # 이미 입력창이 있는 ChatGPT 페이지면 네비게이션 스킵
-    if [ "$current_status" = "ready" ]; then
-        echo "현재 페이지에서 바로 입력합니다." >&2
-        return 0
+    # URL 유효성 검사
+    if [[ -z "$project_url" ]]; then
+        echo "⚠️ 프로젝트 URL이 비어있음" >&2
+        return 1
     fi
 
-    # 입력창이 없으면 프로젝트 URL로 이동
-    osascript <<PROJNEWEOF >/dev/null 2>&1
-tell application "Google Chrome"
-    set t to tab $tab of window $win
-    set URL of t to "$project_url"
-end tell
-PROJNEWEOF
+    echo "🔄 프로젝트에서 새 채팅 시작: $project_url" >&2
+
+    # URL에서 특수문자 이스케이프 (AppleScript 호환)
+    local escaped_url
+    escaped_url=$(printf '%s' "$project_url" | sed 's/\\/\\\\/g; s/"/\\"/g')
+
+    # 프로젝트 URL로 이동 (새 채팅)
+    local nav_result
+    nav_result=$(osascript -e "tell application \"Google Chrome\" to set URL of tab $tab of window $win to \"$escaped_url\"" 2>&1)
+
+    if [[ "$nav_result" == *"error"* ]]; then
+        echo "⚠️ URL 이동 실패: $nav_result" >&2
+        return 1
+    fi
+
+    # 페이지 로드 대기 (더 긴 시간, 더 안정적인 체크)
+    echo "  ... 페이지 로드 대기 중" >&2
+    sleep 3  # 초기 로딩 시간
 
     local wait_count=0
-    while [ $wait_count -lt 10 ]; do
+    local max_wait=15
+    while [ $wait_count -lt $max_wait ]; do
         sleep 1
         ((wait_count++))
 
         local check_result
-        check_result=$(osascript <<CHECKEOF
-tell application "Google Chrome"
+        check_result=$(osascript -e "
+tell application \"Google Chrome\"
     set t to tab $tab of window $win
-    set jsResult to execute t javascript "(function(){
-        var textarea=document.getElementById('prompt-textarea');
-        if(textarea) return 'ready';
-        var prosemirror=document.querySelector('.ProseMirror');
-        if(prosemirror) return 'ready';
-        return 'loading';
-    })()"
-    return jsResult
-end tell
-CHECKEOF
-        )
+    try
+        set jsResult to execute t javascript \"(function(){
+            var textarea=document.getElementById('prompt-textarea');
+            if(textarea && textarea.offsetParent !== null) return 'ready';
+            var prosemirror=document.querySelector('.ProseMirror');
+            if(prosemirror && prosemirror.offsetParent !== null) return 'ready';
+            var sendBtn=document.querySelector('button[data-testid=send-button]');
+            var speechBtn=document.querySelector('button[data-testid=composer-speech-button]');
+            if(sendBtn || speechBtn) return 'ready';
+            return 'loading';
+        })()\"
+        return jsResult
+    on error
+        return \"loading\"
+    end try
+end tell" 2>/dev/null)
 
         if [ "$check_result" = "ready" ]; then
-            echo "프로젝트 내 새 대화가 준비되었습니다." >&2
+            echo "  ✅ 프로젝트 내 새 대화가 준비되었습니다. (${wait_count}초)" >&2
+            sleep 1  # 추가 안정화 시간
             return 0
+        fi
+
+        if [ $((wait_count % 5)) -eq 0 ]; then
+            echo "  ... 페이지 로드 대기 중 (${wait_count}초)" >&2
         fi
     done
 
-    echo "프로젝트 페이지 로드 완료" >&2
+    echo "  ⚠️ 페이지 로드 타임아웃 (${max_wait}초) - 계속 진행" >&2
+    sleep 2
     return 0
 }
 
 # 마지막 응답 가져오기 (내부용)
+# encodeURIComponent로 특수문자(한글 따옴표 등) 안전하게 처리
+# ChatGPT 오류 메시지 감지 시 이전 article에서 가져오기
 _chatgpt_get_last_response() {
     local win="$1"
     local tab="$2"
 
-    osascript <<GETEOF
-tell application "Google Chrome"
-    with timeout of 30 seconds
-    set t to tab $tab of window $win
-    set jsResult to execute t javascript "(function(){
-        var articles = document.querySelectorAll('article[data-testid^=\"conversation-turn\"]');
-        if(articles.length === 0) return 'no response';
-        var lastArticle = articles[articles.length - 1];
-        var text = lastArticle.innerText || '';
-        if (text.indexOf('ChatGPT') === 0) {
-            var idx = text.indexOf(':');
-            if (idx > 0 && idx < 30) text = text.substring(idx + 1);
-        }
-        return text.trim();
-    })()"
-    return jsResult
-    end timeout
-end tell
+    local encoded_result
+    encoded_result=$(osascript - "$win" "$tab" <<'GETEOF' 2>/dev/null
+on run argv
+    set win to item 1 of argv as integer
+    set tabNum to item 2 of argv as integer
+
+    tell application "Google Chrome"
+        with timeout of 30 seconds
+        set t to tab tabNum of window win
+        set jsResult to execute t javascript "(function(){
+            var articles = document.querySelectorAll('article[data-testid^=\"conversation-turn\"]');
+            if(articles.length === 0) return encodeURIComponent('no response');
+
+            // 오류 패턴 목록
+            var errorPatterns = [
+                'Node .* not found in conversation tree',
+                '다시 시도',
+                'Something went wrong',
+                'An error occurred',
+                'network error'
+            ];
+
+            function isErrorMessage(text) {
+                if (!text || text.length < 200) {
+                    for (var i = 0; i < errorPatterns.length; i++) {
+                        if (text.match(new RegExp(errorPatterns[i], 'i'))) return true;
+                    }
+                }
+                return false;
+            }
+
+            function cleanText(text) {
+                if (text.indexOf('ChatGPT') === 0) {
+                    var idx = text.indexOf(':');
+                    if (idx > 0 && idx < 30) text = text.substring(idx + 1);
+                }
+                text = text.replace(/\\d+m\\s*\\d+s\\s*동안 생각함/g, '');
+                text = text.replace(/\\d+분\\s*\\d+초\\s*동안 생각함/g, '');
+                text = text.replace('지금 응답 받기', '');
+                text = text.replace('ChatGPT', '');
+                return text.trim();
+            }
+
+            // 마지막 article 시도
+            var lastArticle = articles[articles.length - 1];
+            var text = cleanText(lastArticle.innerText || '');
+
+            // 오류 메시지면 이전 article 시도
+            if (isErrorMessage(text) && articles.length > 1) {
+                var prevArticle = articles[articles.length - 2];
+                var prevText = cleanText(prevArticle.innerText || '');
+                if (prevText.length > text.length) {
+                    text = prevText;
+                }
+            }
+
+            // Deep Think 폴백: article에서 못 가져오면 .markdown 셀렉터 시도
+            if (!text || text.length < 50) {
+                var markdowns = document.querySelectorAll('.markdown');
+                if (markdowns.length > 0) {
+                    var mdText = cleanText(markdowns[markdowns.length - 1].innerText || '');
+                    if (mdText.length > text.length) {
+                        text = mdText;
+                    }
+                }
+            }
+
+            return encodeURIComponent(text);
+        })()"
+        return jsResult
+        end timeout
+    end tell
+end run
 GETEOF
+)
+    # URL 디코딩 (Python 사용)
+    if [[ -n "$encoded_result" ]]; then
+        python3 -c "import urllib.parse; print(urllib.parse.unquote('$encoded_result'))" 2>/dev/null || echo "$encoded_result"
+    fi
 }
 
 # 심층 리서치 시작만 (내부용)
@@ -461,77 +545,106 @@ CHECKEOF
 
     if [ $waited -ge $max_wait ]; then
         echo "⚠️ 이전 응답 완료 대기 타임아웃 (${max_wait}초)" >&2
+        echo "  🔄 새 채팅 시작 후 재시도..." >&2
+
+        # 새 채팅 시작
+        _chatgpt_new_chat "$win" "$tab"
+        sleep 2
     fi
 
-    # Base64 인코딩
-    local b64_message
-    b64_message=$(printf '%s' "$message" | base64 | tr -d '\n')
+    # JavaScript로 직접 텍스트 입력 (URL 인코딩 - UTF-8 한글 지원, 줄바꿈은 </p><p>로 변환 - ProseMirror 형식)
+    # 방안 A: 임시 파일 사용 - heredoc 변수 치환 문제 회피
+    local temp_msg_file="/tmp/chatgpt_msg_$$.txt"
+    echo "$message" | python3 -c "
+import urllib.parse, sys
+text = sys.stdin.read().rstrip()
+# ProseMirror는 각 줄을 <p> 태그로 감싸야 함 (줄바꿈 = </p><p>)
+text = text.replace('\\n', '</p><p>')
+print(urllib.parse.quote(text))
+" > "$temp_msg_file" 2>/dev/null
 
-    # 입력창 비우기
-    osascript <<CLEAREOF >/dev/null 2>&1
-tell application "Google Chrome"
-    with timeout of 30 seconds
-    set t to tab $tab of window $win
-    execute t javascript "(function(){
-        var el=document.getElementById('prompt-textarea');
-        if(!el) el=document.querySelector('.ProseMirror');
-        if(!el) return 'not found';
-        el.innerHTML='<p><br></p>';
-        el.dispatchEvent(new Event('input',{bubbles:true}));
-        return 'cleared';
-    })()"
-    end timeout
-end tell
-CLEAREOF
+    local input_result
+    input_result=$(osascript - "$win" "$tab" "$temp_msg_file" <<'INPUTEOF' 2>/dev/null
+on run argv
+    set win to item 1 of argv as integer
+    set tabNum to item 2 of argv as integer
+    set msgFile to item 3 of argv
 
-    sleep 0.5
+    -- 임시 파일에서 인코딩된 메시지 읽기
+    set encodedMsg to do shell script "cat " & quoted form of msgFile
 
-    # 텍스트 입력
-    osascript <<INPUTEOF >/dev/null 2>&1
-tell application "Google Chrome"
-    with timeout of 30 seconds
-    set t to tab $tab of window $win
-    execute t javascript "(function(){
-        var el=document.getElementById('prompt-textarea');
-        if(!el) el=document.querySelector('.ProseMirror');
-        if(!el) return 'not found';
-        el.focus();
-        var b64='${b64_message}';
-        var bytes=Uint8Array.from(atob(b64),c=>c.charCodeAt(0));
-        var text=new TextDecoder('utf-8').decode(bytes);
-        var p=el.querySelector('p');
-        if(p){ p.textContent=text; }
-        else{ el.innerHTML='<p>'+text+'</p>'; }
-        el.dispatchEvent(new Event('input',{bubbles:true}));
-        return 'ok';
-    })()"
-    end timeout
-end tell
+    tell application "Google Chrome"
+        with timeout of 60 seconds
+        set t to tab tabNum of window win
+        try
+            set jsResult to execute t javascript "(function(){
+                try {
+                    var msg = decodeURIComponent('" & encodedMsg & "');
+                    var el = document.querySelector('.ProseMirror');
+                    if(!el) el = document.getElementById('prompt-textarea');
+                    if(!el) return 'no_element';
+
+                    if(el.classList && el.classList.contains('ProseMirror')) {
+                        el.innerHTML = '<p>' + msg + '</p>';
+                    } else {
+                        el.value = msg.replace(/<\\/p><p>/g, '\\n');
+                    }
+
+                    el.dispatchEvent(new Event('input', {bubbles: true}));
+                    el.focus();
+                    return 'ok';
+                } catch(e) {
+                    return 'error:' + e.message;
+                }
+            })()"
+            return jsResult
+        on error errMsg
+            return "error:" & errMsg
+        end try
+        end timeout
+    end tell
+end run
 INPUTEOF
+)
+
+    # 임시 파일 정리
+    rm -f "$temp_msg_file" 2>/dev/null
+
+    if [[ "$input_result" == "ok" ]]; then
+        echo "  ✅ 텍스트 입력 완료" >&2
+    else
+        echo "  ⚠️ 텍스트 입력 결과: $input_result" >&2
+    fi
 
     sleep 1
 
-    # 전송 버튼 클릭 (재시도 포함)
+    # 전송 버튼 클릭 (heredoc 방식)
     local send_attempts=0
     local max_send_attempts=5
+
     while [ $send_attempts -lt $max_send_attempts ]; do
         local send_result
         send_result=$(osascript <<SENDEOF 2>/dev/null
 tell application "Google Chrome"
     with timeout of 30 seconds
     set t to tab $tab of window $win
-    set jsResult to execute t javascript "(function(){
-        var btn=document.querySelector('button[data-testid=\"send-button\"]');
-        if(btn) { btn.click(); return 'sent'; }
-        return 'no_button';
-    })()"
-    return jsResult
+    try
+        set jsResult to execute t javascript "(function(){
+            var btn = document.querySelector('button[data-testid=\"send-button\"]');
+            if(btn) { btn.click(); return 'sent'; }
+            return 'no_button';
+        })()"
+        return jsResult
+    on error
+        return "no_button"
+    end try
     end timeout
 end tell
 SENDEOF
         )
 
         if [ "$send_result" = "sent" ]; then
+            echo "  ✅ 전송 완료" >&2
             break
         fi
 
@@ -547,169 +660,28 @@ SENDEOF
     fi
 }
 
-# 메시지 전송 + 응답 대기 (내부용)
+# 메시지 전송 + 응답 대기 (내부용) - v2 폴링 엔진 사용
 _chatgpt_send_and_wait() {
     local message="$1"
     local win="$2"
     local tab="$3"
     local wait_sec="$4"
 
-    # 현재 article 개수 저장
-    local before_count
-    before_count=$(osascript <<COUNTEOF
-tell application "Google Chrome"
-    with timeout of 30 seconds
-    set t to tab $tab of window $win
-    set jsResult to execute t javascript "(function(){
-        return document.querySelectorAll('article[data-testid^=\"conversation-turn\"]').length;
-    })()"
-    return jsResult
-    end timeout
-end tell
-COUNTEOF
-    )
-
     # 메시지 전송
     _chatgpt_send_message "$message" "$win" "$tab"
 
     echo "⏳ 질문 전송 완료. 응답 대기 중... (최대 ${wait_sec}초)" >&2
 
-    # 응답 대기 (폴링)
-    local elapsed=0
-    local response=""
-    while [ $elapsed -lt $wait_sec ]; do
-        sleep 30
-        elapsed=$((elapsed + 30))
+    # POST_SEND_WAIT 대기
+    sleep "${CGPT_V2_POST_SEND_WAIT:-1.0}"
 
-        response=$(osascript <<POLLEOF
-tell application "Google Chrome"
-    with timeout of 30 seconds
-    set t to tab $tab of window $win
-    set jsResult to execute t javascript "(function(){
-        // 스트리밍 실패 감지
-        var bodyText = document.body.innerText || '';
-        if(bodyText.includes('스트리밍이 중지되었습니다') ||
-           bodyText.includes('메시지 완료를 기다리는 중') ||
-           bodyText.includes('중단되었습니다') ||
-           bodyText.includes('Something went wrong')) {
-            return '__FAILED__';
-        }
+    # v2 폴링 엔진 사용
+    local response
+    response="$(_cgpt_poll_and_extract_v2 "$win" "$tab" "$wait_sec")"
+    local exit_code=$?
 
-        // article 개수 확인
-        var articles = document.querySelectorAll('article[data-testid^=\"conversation-turn\"]');
-        var count = articles.length;
-        if(count <= ${before_count}) return '__WAITING__';
-
-        // 완료 확인: stop-button 없고 입력창이 활성화되면 완료
-        var stopBtn = document.querySelector('button[data-testid=\"stop-button\"]');
-        if(stopBtn) return '__STREAMING__';  // stop-button 있으면 아직 생성 중
-
-        // send-button 또는 composer-speech-button 있으면 완료
-        var sendBtn = document.querySelector('button[data-testid=\"send-button\"]');
-        var speechBtn = document.querySelector('button[data-testid=\"composer-speech-button\"]');
-        if(!sendBtn && !speechBtn) return '__STREAMING__';  // 둘 다 없으면 아직 로딩 중
-
-        // 마지막 article에서 응답 가져오기
-        var last = articles[count - 1];
-
-        // 완료 감지: 👍👎 버튼 (feedback buttons) 존재 여부 확인
-        // 응답 완료 시에만 이 버튼들이 나타남
-        var feedbackBtns = last.querySelectorAll('button[data-testid=\"good-response-turn-action-button\"], button[data-testid=\"bad-response-turn-action-button\"]');
-        var copyBtn = last.querySelector('button[data-testid=\"copy-turn-action-button\"]');
-
-        // 완료 버튼이 없으면 아직 응답 중
-        if (feedbackBtns.length === 0 && !copyBtn) {
-            return '__GENERATING__';
-        }
-
-        // 완료됨 - 텍스트 추출
-        var text = last.innerText || '';
-        if (text.indexOf('ChatGPT') === 0) {
-            var idx = text.indexOf(':');
-            if (idx > 0 && idx < 30) text = text.substring(idx + 1);
-        }
-        text = text.trim();
-
-        // Deep Think 헤더 텍스트 제거 (완료 후 남아있는 UI 텍스트)
-        var thinkIdx = text.indexOf('동안 생각함');
-        if (thinkIdx > 0) {
-            var startCut = Math.max(0, thinkIdx - 20);
-            text = text.substring(0, startCut) + text.substring(thinkIdx + 6);
-        }
-        text = text.replace('지금 응답 받기', '').replace('ChatGPT', '').trim();
-
-        return text;
-    })()"
-    return jsResult
-    end timeout
-end tell
-POLLEOF
-        )
-
-        if [ "$response" = "__WAITING__" ]; then
-            continue
-        elif [ "$response" = "__STREAMING__" ]; then
-            echo "  ... 응답 스트리밍 중 (${elapsed}초)" >&2
-            continue
-        elif [ "$response" = "__GENERATING__" ]; then
-            echo "  ... 응답 생성 중 - 완료 버튼 대기 (${elapsed}초)" >&2
-            continue
-        elif [ "$response" = "__FAILED__" ]; then
-            echo "" >&2
-            echo "⚠️ 스트리밍 실패 감지 (${elapsed}초)" >&2
-            echo "__FAILED__"
-            return 1
-        elif [ -n "$response" ] && [ "$response" != "missing value" ]; then
-            echo "" >&2
-            echo "━━━ ChatGPT 응답 완료 ━━━" >&2
-            echo "$response"
-            return 0
-        fi
-    done
-
-    # 타임아웃 후 추가 대기
-    echo "" >&2
-    echo "⚠️ 타임아웃 도달. 스트리밍 완료 확인 중..." >&2
-
-    local extra_wait=0
-    local max_extra=$((CHATGPT_EXTRA_WAIT * CHATGPT_EXTRA_ROUNDS))
-    while [ $extra_wait -lt $max_extra ]; do
-        local still_streaming
-        still_streaming=$(osascript <<STREAMCHECKEOF
-tell application "Google Chrome"
-    with timeout of 30 seconds
-    set t to tab $tab of window $win
-    set jsResult to execute t javascript "(function(){
-        var stopBtn = document.querySelector('button[data-testid=\"stop-button\"]');
-        if(stopBtn) return 'yes';  // stop-button 있으면 아직 생성 중
-        var sendBtn = document.querySelector('button[data-testid=\"send-button\"]');
-        var speechBtn = document.querySelector('button[data-testid=\"composer-speech-button\"]');
-        if(sendBtn || speechBtn) return 'no';  // 입력 가능 상태면 완료
-        return 'yes';  // 그 외는 아직 생성 중
-    })()"
-    return jsResult
-    end timeout
-end tell
-STREAMCHECKEOF
-        )
-
-        if [ "$still_streaming" = "no" ]; then
-            echo "  스트리밍 완료 확인됨" >&2
-            break
-        fi
-
-        echo "  ... 아직 생성 중 (추가 대기 ${extra_wait}초)" >&2
-        sleep 30
-        extra_wait=$((extra_wait + 30))
-    done
-
-    # 마지막 응답 가져오기
-    response=$(_chatgpt_get_last_response "$win" "$tab")
-
-    echo "" >&2
-    echo "━━━ ChatGPT 응답 (타임아웃 후 완료) ━━━" >&2
     echo "$response"
-    return 0
+    return $exit_code
 }
 
 # 재시도 로직 (내부용)
@@ -720,26 +692,36 @@ _chatgpt_send_with_retry() {
     local wait_sec="$4"
     local max_retries="$5"
     local project_url="$6"
-    local min_len="${CHATGPT_MIN_RESPONSE_LEN:-10}"
+    local min_len="${CHATGPT_MIN_RESPONSE_LEN:-100}"
 
     local attempt=1
     local response=""
 
     while [ $attempt -le $max_retries ]; do
         echo "" >&2
-        echo "━━━ 시도 ${attempt}/${max_retries} ━━━" >&2
+        echo "━━━ [$(date '+%H:%M:%S')] 시도 ${attempt}/${max_retries} ━━━" >&2
 
         response=$(_chatgpt_send_and_wait "$message" "$win" "$tab" "$wait_sec")
 
-        # 응답 검증
-        if [[ "$response" == "__FAILED__" ]]; then
-            echo "⚠️ 스트리밍 실패 감지됨" >&2
+        # 응답 검증 (v2 에러 코드 포함)
+        if [[ "$response" == "__FAILED__" || "$response" == "__STOPPED__" ]]; then
+            echo "⚠️ 스트리밍 실패/중지 감지됨" >&2
+        elif [[ "$response" == "__STUCK__" ]]; then
+            echo "⚠️ 브라우저 통신 이상 (STUCK) 감지됨" >&2
+        elif [[ "$response" == "__COMPLETED_BUT_EMPTY__" ]]; then
+            echo "⚠️ 완료됐으나 텍스트 회수 실패" >&2
+        elif [[ "$response" == __ERROR__:* ]]; then
+            local error_reason="${response#__ERROR__:}"
+            echo "⚠️ 오류 감지: $error_reason" >&2
         elif [[ -n "$response" && ${#response} -ge $min_len && "$response" != "no response" && "$response" != "no markdown content" && "$response" != "missing value" ]]; then
-            echo "✅ 응답 수신 완료 (${#response}자)" >&2
+            echo "[$(date '+%H:%M:%S')] ✅ 응답 수신 완료 (${#response}자)" >&2
             echo "$response"
             return 0
         else
             echo "⚠️ 응답 실패 또는 너무 짧음 (${#response}자, 최소 ${min_len}자 필요)" >&2
+            if [[ -n "$response" ]]; then
+                echo "  [DEBUG] 응답 내용: '${response:0:200}'" >&2
+            fi
         fi
 
         if [ $attempt -lt $max_retries ]; then
@@ -758,7 +740,7 @@ _chatgpt_send_with_retry() {
     done
 
     echo "" >&2
-    echo "❌ ${max_retries}회 모두 실패" >&2
+    echo "[$(date '+%H:%M:%S')] ❌ ${max_retries}회 모두 실패" >&2
     echo "$response"
     return 1
 }

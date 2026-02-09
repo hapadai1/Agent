@@ -1,0 +1,37 @@
+{
+"stage": 2,
+"total_score": 70,
+"max_score": 100,
+"scores_by_criteria": {
+"문제인식": {
+"score": 0,
+"max": 0,
+"details": {}
+},
+"실현가능성": {
+"score": 0,
+"max": 0,
+"details": {}
+},
+"성장전략": {
+"score": 7,
+"max": 10,
+"details": {
+"시장분석": 7
+}
+},
+"팀구성": {
+"score": 0,
+"max": 0,
+"details": {}
+}
+},
+"applicable_criteria": ["성장전략"],
+"normalized_score": 70,
+"defect_tags": ["MISSING_EVIDENCE"],
+"evidence_anchors": [
+{
+"location": "시장 배경과 문제의 크기",
+"issue": "시장규모 근거가 '연도별 신규 신청건수' 중심으로 제시되어, 거래금액 기준 TAM 또는 타깃 세그먼트(SAM/SOM)로의 연결 근거가 부족함",
+"criteria": "성장전략>시장분석"
+}
