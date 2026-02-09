@@ -255,7 +255,7 @@ _chatgpt_new_chat() {
 
     # 프로젝트 URL 없으면 현재 탭 URL에서 프로젝트 감지 시도
     local current_url
-    current_url=$(osascript -e "tell application \"Google Chrome\" to URL of tab $tab of window $win" 2>/dev/null)
+    current_url=$(osascript -e "tell application \"$CHATGPT_BROWSER\" to URL of tab $tab of window $win" 2>/dev/null)
 
     if [[ "$current_url" == *"/g/g-p"* ]] || [[ "$current_url" == *"/project/"* ]]; then
         # 채팅 ID 제거하고 프로젝트 기본 URL 추출
@@ -268,7 +268,7 @@ _chatgpt_new_chat() {
     # 그 외: 버튼 클릭 (fallback, 비권장)
     echo "WARNING: 프로젝트 URL 없음. 버튼 클릭 시도 (루트로 이동 가능)" >&2
     osascript <<NEWEOF >/dev/null 2>&1
-tell application "Google Chrome"
+tell application "$CHATGPT_BROWSER"
     set t to tab $tab of window $win
     execute t javascript "(function(){
         var btn = document.querySelector('[data-testid=create-new-chat-button]');
@@ -301,7 +301,7 @@ _chatgpt_new_chat_in_project() {
 
     # 프로젝트 URL로 이동 (새 채팅)
     local nav_result
-    nav_result=$(osascript -e "tell application \"Google Chrome\" to set URL of tab $tab of window $win to \"$escaped_url\"" 2>&1)
+    nav_result=$(osascript -e "tell application \"$CHATGPT_BROWSER\" to set URL of tab $tab of window $win to \"$escaped_url\"" 2>&1)
 
     if [[ "$nav_result" == *"error"* ]]; then
         echo "⚠️ URL 이동 실패: $nav_result" >&2
@@ -320,7 +320,7 @@ _chatgpt_new_chat_in_project() {
 
         local check_result
         check_result=$(osascript -e "
-tell application \"Google Chrome\"
+tell application \"$CHATGPT_BROWSER\"
     set t to tab $tab of window $win
     try
         set jsResult to execute t javascript \"(function(){
@@ -363,16 +363,18 @@ _chatgpt_get_last_response() {
     local tab="$2"
 
     local encoded_result
-    encoded_result=$(osascript - "$win" "$tab" <<'GETEOF' 2>/dev/null
+    encoded_result=$(osascript - "$win" "$tab" "$CHATGPT_BROWSER" <<'GETEOF' 2>/dev/null
 on run argv
     set win to item 1 of argv as integer
     set tabNum to item 2 of argv as integer
+    set browserName to item 3 of argv
 
-    tell application "Google Chrome"
-        with timeout of 30 seconds
-        set t to tab tabNum of window win
-        set jsResult to execute t javascript "(function(){
-            var articles = document.querySelectorAll('article[data-testid^=\"conversation-turn\"]');
+    using terms from application "Google Chrome"
+        tell application browserName
+            with timeout of 30 seconds
+            set t to tab tabNum of window win
+            set jsResult to execute t javascript "(function(){
+                var articles = document.querySelectorAll('article[data-testid^=\"conversation-turn\"]');
             if(articles.length === 0) return encodeURIComponent('no response');
 
             // 오류 패턴 목록
@@ -431,9 +433,10 @@ on run argv
 
             return encodeURIComponent(text);
         })()"
-        return jsResult
-        end timeout
-    end tell
+            return jsResult
+            end timeout
+        end tell
+    end using terms from
 end run
 GETEOF
 )
@@ -453,7 +456,7 @@ _chatgpt_start_research() {
 
     # 심층 리서치 페이지로 이동
     osascript <<NAVEOF >/dev/null 2>&1
-tell application "Google Chrome"
+tell application "$CHATGPT_BROWSER"
     set t to tab $tab of window $win
     execute t javascript "(function(){var link=document.querySelector('[data-testid=deep-research-sidebar-item]');if(link)link.click();else window.location.href='https://chatgpt.com/deep-research';})()"
 end tell
@@ -480,7 +483,7 @@ _chatgpt_deep_research() {
 
     # 심층 리서치 페이지로 이동
     osascript <<NAVEOF >/dev/null 2>&1
-tell application "Google Chrome"
+tell application "$CHATGPT_BROWSER"
     set t to tab $tab of window $win
     execute t javascript "(function(){var link=document.querySelector('[data-testid=deep-research-sidebar-item]');if(link)link.click();else window.location.href='https://chatgpt.com/deep-research';})()"
 end tell
@@ -495,7 +498,7 @@ NAVEOF
     # 완료 후 일반 모드로 복귀
     echo "심층 리서치 완료. 새 대화로 복귀 중..." >&2
     osascript <<BACKEOF >/dev/null 2>&1
-tell application "Google Chrome"
+tell application "$CHATGPT_BROWSER"
     set t to tab $tab of window $win
     set URL of t to "https://chatgpt.com/?model=gpt-4o"
 end tell
@@ -517,7 +520,7 @@ _chatgpt_send_message() {
     while [ $waited -lt $max_wait ]; do
         local is_generating
         is_generating=$(osascript <<CHECKEOF 2>/dev/null
-tell application "Google Chrome"
+tell application "$CHATGPT_BROWSER"
     with timeout of 10 seconds
     set t to tab $tab of window $win
     set jsResult to execute t javascript "(function(){
@@ -564,45 +567,48 @@ print(urllib.parse.quote(text))
 " > "$temp_msg_file" 2>/dev/null
 
     local input_result
-    input_result=$(osascript - "$win" "$tab" "$temp_msg_file" <<'INPUTEOF' 2>/dev/null
+    input_result=$(osascript - "$win" "$tab" "$temp_msg_file" "$CHATGPT_BROWSER" <<'INPUTEOF' 2>/dev/null
 on run argv
     set win to item 1 of argv as integer
     set tabNum to item 2 of argv as integer
     set msgFile to item 3 of argv
+    set browserName to item 4 of argv
 
     -- 임시 파일에서 인코딩된 메시지 읽기
     set encodedMsg to do shell script "cat " & quoted form of msgFile
 
-    tell application "Google Chrome"
-        with timeout of 60 seconds
-        set t to tab tabNum of window win
-        try
-            set jsResult to execute t javascript "(function(){
-                try {
-                    var msg = decodeURIComponent('" & encodedMsg & "');
-                    var el = document.querySelector('.ProseMirror');
-                    if(!el) el = document.getElementById('prompt-textarea');
-                    if(!el) return 'no_element';
+    using terms from application "Google Chrome"
+        tell application browserName
+            with timeout of 60 seconds
+            set t to tab tabNum of window win
+            try
+                set jsResult to execute t javascript "(function(){
+                    try {
+                        var msg = decodeURIComponent('" & encodedMsg & "');
+                        var el = document.querySelector('.ProseMirror');
+                        if(!el) el = document.getElementById('prompt-textarea');
+                        if(!el) return 'no_element';
 
-                    if(el.classList && el.classList.contains('ProseMirror')) {
-                        el.innerHTML = '<p>' + msg + '</p>';
-                    } else {
-                        el.value = msg.replace(/<\\/p><p>/g, '\\n');
+                        if(el.classList && el.classList.contains('ProseMirror')) {
+                            el.innerHTML = '<p>' + msg + '</p>';
+                        } else {
+                            el.value = msg.split('</p><p>').join(String.fromCharCode(10));
+                        }
+
+                        el.dispatchEvent(new Event('input', {bubbles: true}));
+                        el.focus();
+                        return 'ok';
+                    } catch(e) {
+                        return 'error:' + e.message;
                     }
-
-                    el.dispatchEvent(new Event('input', {bubbles: true}));
-                    el.focus();
-                    return 'ok';
-                } catch(e) {
-                    return 'error:' + e.message;
-                }
-            })()"
-            return jsResult
-        on error errMsg
-            return "error:" & errMsg
-        end try
-        end timeout
-    end tell
+                })()"
+                return jsResult
+            on error errMsg
+                return "error:" & errMsg
+            end try
+            end timeout
+        end tell
+    end using terms from
 end run
 INPUTEOF
 )
@@ -625,7 +631,7 @@ INPUTEOF
     while [ $send_attempts -lt $max_send_attempts ]; do
         local send_result
         send_result=$(osascript <<SENDEOF 2>/dev/null
-tell application "Google Chrome"
+tell application "$CHATGPT_BROWSER"
     with timeout of 30 seconds
     set t to tab $tab of window $win
     try
@@ -751,21 +757,27 @@ _chatgpt_send_with_retry() {
 
 # ChatGPT 탭 목록 출력
 chatgpt_tabs() {
-    osascript <<'EOF'
-tell application "Google Chrome"
-    set output to ""
-    set winCount to count of windows
-    repeat with i from 1 to winCount
-        set tabCount to count of tabs of window i
-        repeat with j from 1 to tabCount
-            set t to tab j of window i
-            if URL of t contains "chatgpt" then
-                set output to output & "W" & i & ":T" & j & " | " & title of t & " | " & URL of t & linefeed
-            end if
-        end repeat
-    end repeat
-    return output
-end tell
+    osascript - "$CHATGPT_BROWSER" <<'EOF'
+on run argv
+    set browserName to item 1 of argv
+
+    using terms from application "Google Chrome"
+        tell application browserName
+            set output to ""
+            set winCount to count of windows
+            repeat with i from 1 to winCount
+                set tabCount to count of tabs of window i
+                repeat with j from 1 to tabCount
+                    set t to tab j of window i
+                    if URL of t contains "chatgpt" then
+                        set output to output & "W" & i & ":T" & j & " | " & title of t & " | " & URL of t & linefeed
+                    end if
+                end repeat
+            end repeat
+            return output
+        end tell
+    end using terms from
+end run
 EOF
 }
 
@@ -781,7 +793,7 @@ chatgpt_detect_tabs() {
 
     local result
     result=$(osascript <<DETECTEOF
-tell application "Google Chrome"
+tell application "$CHATGPT_BROWSER"
     set askTab to ""
     set researchTab to ""
     set tabCount to count of tabs of window $win
@@ -819,7 +831,7 @@ is_deep_research_tab() {
     local win="${1:-1}"
     local tab="${2:-1}"
     local url
-    url=$(osascript -e "tell application \"Google Chrome\" to URL of tab $tab of window $win" 2>/dev/null)
+    url=$(osascript -e "tell application \"$CHATGPT_BROWSER\" to URL of tab $tab of window $win" 2>/dev/null)
     [[ "$url" == *"deep-research"* ]]
 }
 

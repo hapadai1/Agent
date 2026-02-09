@@ -87,7 +87,7 @@ _cgpt_exec_js() {
 
     local out
     out="$(osascript <<EOF 2>/dev/null
-tell application "Google Chrome"
+tell application "$CHATGPT_BROWSER"
     with timeout of 30 seconds
         set t to tab $tab of window $win
         set jsWrapper to "(function(){ var decoded = decodeURIComponent(escape(atob('$b64_js'))); return eval(decoded); })()"
@@ -367,8 +367,11 @@ _cgpt_poll_and_extract_v2() {
 
             WAIT)
                 # 탭 활성화로 브라우저 스로틀링 방지 (streaming 포함)
-                if [[ "$reason" == "streaming" || "$reason" == "unknown_wait" || "$reason" == "no_text_yet" ]]; then
-                    osascript -e "tell application \"Google Chrome\" to tell window $win to set active tab index to $tab" 2>/dev/null || true
+                # CHATGPT_TAB_ACTIVATE=false면 탭 활성화 안함 (Canary 사용 시 권장)
+                if [[ "${CHATGPT_TAB_ACTIVATE:-true}" == "true" ]]; then
+                    if [[ "$reason" == "streaming" || "$reason" == "unknown_wait" || "$reason" == "no_text_yet" ]]; then
+                        osascript -e "tell application \"$CHATGPT_BROWSER\" to tell window $win to set active tab index to $tab" 2>/dev/null || true
+                    fi
                 fi
 
                 # 동적 폴링 간격

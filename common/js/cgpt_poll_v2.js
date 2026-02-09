@@ -60,8 +60,7 @@
     var body = document.body ? document.body.innerText : '';
     if (/Something went wrong|Try again/i.test(body)) return 'error_page';
     if (/Sign in|Log in/i.test(body) && !qs('article[data-testid^="conversation-turn"]')) return 'login_required';
-    // 스트리밍 중지 상태 감지 (한글/영문)
-    if (/스트리밍이 중지되었습니다|Streaming has stopped|Streaming stopped/i.test(body)) return 'streaming_stalled';
+    // 스트리밍 중지는 UI 기반으로 감지 (아래 streaming_stalled 로직)
     return null;
   }
   var errorReason = detectError();
@@ -89,7 +88,13 @@
   if (actionsExist && !textExists) {
     return JSON.stringify({status:'WAIT',reason:'no_text_yet',hasText:false,turnIndex:turnIndex});
   }
-  // 텍스트는 있는데 액션 없음 → 완료 근접
+  // 텍스트는 있는데 액션 없음 → 스트리밍 중지 감지 (음성입력 버튼 있으면)
+  var speechBtn = qs('button[data-testid="composer-speech-button"]');
+  if (textExists && !actionsExist && visible(speechBtn)) {
+    // 스트리밍 중지: 텍스트 있고, 액션버튼 없고, 음성입력 버튼 있음 → ERROR로 new chat 재시도
+    return JSON.stringify({status:'ERROR',reason:'streaming_stalled',hasText:true,turnIndex:turnIndex});
+  }
+  // 텍스트는 있는데 액션 없음 → 완료 근접 (음성버튼 없으면 정상 대기)
   if (textExists && !actionsExist) {
     return JSON.stringify({status:'WAIT',reason:'no_actions_yet',hasText:true,turnIndex:turnIndex});
   }
