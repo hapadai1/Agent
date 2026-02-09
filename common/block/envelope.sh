@@ -11,6 +11,16 @@
 #   _wrap_envelope "claude" "review" "sonnet" "$result" "$exit_code" "$duration_ms" "$retries"
 
 _ENVELOPE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_LIB_CORE="${_ENVELOPE_DIR}/../../lib/core"
+
+# lib/core/json.sh 로드 (있으면 사용)
+if [[ -f "$_LIB_CORE/json.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "$_LIB_CORE/json.sh"
+    _USE_LIB_CORE=true
+else
+    _USE_LIB_CORE=false
+fi
 
 # error_mapper.sh 로드
 if [[ -f "$_ENVELOPE_DIR/error_mapper.sh" ]]; then
@@ -25,6 +35,13 @@ fi
 # 사용법: if _is_json "$string"; then ...
 _is_json() {
     local str="$1"
+
+    # lib/core 사용 가능하면 활용
+    if [[ "$_USE_LIB_CORE" == "true" ]]; then
+        json_validate "$str"
+        return $?
+    fi
+
     python3 -c "
 import json, sys
 try:

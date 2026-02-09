@@ -8,6 +8,20 @@
 #   - 통합 함수로 두 모드 모두 지원
 
 # ══════════════════════════════════════════════════════════════
+# lib/core 모듈 로드 (있으면 사용, 없으면 내장 함수)
+# ══════════════════════════════════════════════════════════════
+_ERRORS_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+_LIB_CORE="${_ERRORS_DIR}/../../../../lib/core"
+
+if [[ -f "${_LIB_CORE}/json.sh" ]]; then
+    # shellcheck source=/dev/null
+    source "${_LIB_CORE}/json.sh"
+    _USE_LIB_CORE=true
+else
+    _USE_LIB_CORE=false
+fi
+
+# ══════════════════════════════════════════════════════════════
 # Envelope 모드 감지 및 파싱
 # ══════════════════════════════════════════════════════════════
 
@@ -16,7 +30,12 @@
 is_envelope() {
     local response="$1"
 
-    # JSON이고 최상위에 ok 필드가 있으면 Envelope
+    if [[ "$_USE_LIB_CORE" == "true" ]]; then
+        json_is_envelope "$response"
+        return $?
+    fi
+
+    # 내장 fallback
     python3 -c "
 import json, sys
 try:
@@ -33,6 +52,12 @@ except:
 # 사용법: ok=$(get_envelope_ok "$response")  # "true" 또는 "false"
 get_envelope_ok() {
     local response="$1"
+
+    if [[ "$_USE_LIB_CORE" == "true" ]]; then
+        json_envelope_ok "$response"
+        return
+    fi
+
     python3 -c "
 import json, sys
 try:
@@ -47,6 +72,12 @@ except:
 # 사용법: code=$(get_envelope_error_code "$response")
 get_envelope_error_code() {
     local response="$1"
+
+    if [[ "$_USE_LIB_CORE" == "true" ]]; then
+        echo "$response" | json_get_nested "" "error.code"
+        return
+    fi
+
     python3 -c "
 import json, sys
 try:
@@ -61,6 +92,12 @@ except:
 # 사용법: legacy=$(get_envelope_legacy_code "$response")
 get_envelope_legacy_code() {
     local response="$1"
+
+    if [[ "$_USE_LIB_CORE" == "true" ]]; then
+        echo "$response" | json_get_nested "" "error.legacy_code"
+        return
+    fi
+
     python3 -c "
 import json, sys
 try:
@@ -75,6 +112,12 @@ except:
 # 사용법: result=$(get_envelope_result "$response")
 get_envelope_result() {
     local response="$1"
+
+    if [[ "$_USE_LIB_CORE" == "true" ]]; then
+        json_envelope_result "$response"
+        return
+    fi
+
     python3 -c "
 import json, sys
 try:

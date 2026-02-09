@@ -76,21 +76,28 @@ render_writer_prompt() {
         return 1
     fi
 
-    local template
-    template=$(cat "$template_file")
-
-    # Python으로 안전하게 치환
+    # Python으로 안전하게 치환 (변수는 환경변수로 전달)
     local result
-    result=$(python3 -c "
+    result=$(
+        TMPL_SECTION_NAME="$section_name" \
+        TMPL_SECTION_DETAIL="$section_detail" \
+        TMPL_TOPIC="$topic" \
+        TMPL_PAGES="$pages" \
+        TMPL_RESEARCH="$research_block" \
+        python3 -c "
+import os
 import sys
 
-template = '''$template'''
-section_name = '''$section_name'''
-section_detail = '''$section_detail'''
-topic = '''$topic'''
-pages = '''$pages'''
-research_block = '''$research_block'''
-previous_feedback = '''$previous_feedback'''
+# 템플릿 파일 읽기
+with open(sys.argv[1], 'r', encoding='utf-8') as f:
+    template = f.read()
+
+# 환경변수에서 안전하게 값 읽기
+section_name = os.environ.get('TMPL_SECTION_NAME', '')
+section_detail = os.environ.get('TMPL_SECTION_DETAIL', '')
+topic = os.environ.get('TMPL_TOPIC', '')
+pages = os.environ.get('TMPL_PAGES', '')
+research_block = os.environ.get('TMPL_RESEARCH', '')
 
 # 플레이스홀더 치환
 template = template.replace('{topic}', topic)
@@ -106,7 +113,7 @@ else:
     template = template.replace('{research_block}', '')
 
 print(template)
-" 2>/dev/null)
+" "$template_file" 2>/dev/null)
 
     # 이전 피드백 추가
     if [[ -n "$previous_feedback" ]]; then
@@ -139,23 +146,26 @@ render_evaluator_prompt() {
         return 1
     fi
 
-    local template
-    template=$(cat "$template_file")
+    # Python으로 안전하게 치환 (변수는 환경변수로, content는 stdin으로)
+    TMPL_SECTION_NAME="$section_name" python3 -c "
+import os
+import sys
 
-    # Python으로 안전하게 치환
-    python3 -c "
-template = '''$template'''
-section_name = '''$section_name'''
+# 템플릿 파일 읽기
+with open(sys.argv[1], 'r', encoding='utf-8') as f:
+    template = f.read()
+
+# 환경변수에서 안전하게 값 읽기
+section_name = os.environ.get('TMPL_SECTION_NAME', '')
 
 # content는 stdin으로 받음 (큰 텍스트 처리)
-import sys
 content = sys.stdin.read()
 
 template = template.replace('{section_name}', section_name)
 template = template.replace('{section_content}', content)
 
 print(template)
-" <<< "$content" 2>/dev/null
+" "$template_file" <<< "$content" 2>/dev/null
 }
 
 # ══════════════════════════════════════════════════════════════
@@ -169,16 +179,19 @@ replace_placeholder() {
     local key="$2"
     local value="$3"
 
-    # Python으로 안전하게 치환
-    python3 -c "
-template = '''$template'''
-key = '$key'
-value = '''$value'''
+    # Python으로 안전하게 치환 (환경변수 + stdin)
+    TMPL_KEY="$key" TMPL_VALUE="$value" python3 -c "
+import os
+import sys
+
+template = sys.stdin.read()
+key = os.environ.get('TMPL_KEY', '')
+value = os.environ.get('TMPL_VALUE', '')
 
 placeholder = '{' + key + '}'
 result = template.replace(placeholder, value)
 print(result)
-" 2>/dev/null
+" <<< "$template" 2>/dev/null
 }
 
 # 복수 플레이스홀더 치환 (dict 형태)
@@ -187,12 +200,14 @@ replace_placeholders() {
     local template="$1"
     local vars_json="$2"
 
-    echo "$template" | python3 -c "
+    # Python으로 안전하게 치환 (JSON은 환경변수, template은 stdin)
+    TMPL_VARS="$vars_json" python3 -c "
 import sys
 import json
+import os
 
 template = sys.stdin.read()
-vars_json = '''$vars_json'''
+vars_json = os.environ.get('TMPL_VARS', '{}')
 
 try:
     variables = json.loads(vars_json)
@@ -204,7 +219,7 @@ try:
     print(template)
 except:
     print(template)
-" 2>/dev/null
+" <<< "$template" 2>/dev/null
 }
 
 # ══════════════════════════════════════════════════════════════
@@ -257,7 +272,8 @@ append_required_info() {
 # 사용법: escaped=$(escape_json "$value")
 escape_json() {
     local value="$1"
-    python3 -c "import json; print(json.dumps('''$value'''))" 2>/dev/null
+    # stdin으로 전달하여 특수문자 안전하게 처리
+    python3 -c "import json, sys; print(json.dumps(sys.stdin.read()))" <<< "$value" 2>/dev/null
 }
 
 # 쉘 문자열 이스케이프 (작은따옴표용)

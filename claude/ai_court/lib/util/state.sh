@@ -29,7 +29,7 @@ get_state_file() {
 # 상태 저장
 # ══════════════════════════════════════════════════════════════
 
-# 단일 스텝 상태 저장
+# 단일 스텝 상태 저장 (atomic write 적용)
 # 사용법: save_step_state "s1_2" 1 "writer" "completed" "$output_file" 1500 45
 save_step_state() {
     local section="$1"
@@ -42,7 +42,10 @@ save_step_state() {
 
     mkdir -p "$_STATE_DIR"
 
-    cat > "$_STATE_FILE" <<EOF
+    # atomic write: 임시 파일에 쓰고 mv
+    local tmp_file="${_STATE_FILE}.tmp.$$"
+
+    cat > "$tmp_file" <<EOF
 {
   "section": "$section",
   "version": $version,
@@ -58,6 +61,13 @@ save_step_state() {
   }
 }
 EOF
+
+    # atomic move (실패 시 임시 파일 정리)
+    if ! mv "$tmp_file" "$_STATE_FILE" 2>/dev/null; then
+        rm -f "$tmp_file"
+        echo "ERROR: 상태 파일 저장 실패: $_STATE_FILE" >&2
+        return 1
+    fi
 }
 
 # 간단한 상태 저장 (호환성 유지)
