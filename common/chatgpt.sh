@@ -183,7 +183,7 @@ chatgpt_call() {
         new_chat)
             # 새 대화 시작 (프로젝트 URL: 전달값 > 환경변수 > 루트)
             # --mode=new_chat은 명시적 요청이므로 항상 새 채팅 시작 (force=true)
-            local new_chat_project_url="${project_url:-$PLAN_PROJECT_URL}"
+            local new_chat_project_url="${project_url:-${PLAN_PROJECT_URL:-}}"
             if [[ -n "$new_chat_project_url" ]]; then
                 _chatgpt_new_chat_in_project "$win" "$tab" "$new_chat_project_url" "force"
             else

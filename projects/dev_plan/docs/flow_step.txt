@@ -1,0 +1,100 @@
+수정된 플로우 제안
+
+Phase 1: 설계 (Design Loop)
+├── Step 0: [Claude-수동] 기능 요구사항 입력
+└── 반복 (최대 5회)
+    ├── Step 1: [GPT-자동] 설계 문서 + 테스트 케이스 작성
+    ├── Step 2: [Claude-자동] 설계 검토 및 평가
+    └── 종료조건: 평가 점수 ≥ 80 또는 5회 도달
+
+Phase 2: 개발 (Dev Loop)  
+└── 반복 (최대 5회)
+    ├── Step 3: [Claude-자동] 코드 개발 + 테스트 실행
+    ├── Step 4: [GPT-자동] 테스트 결과 평가 + 피드백
+    └── 종료조건: 테스트 통과 또는 5회 도달
+Step별 Input 데이터
+Step 0: 기능 요구사항 입력 (수동)
+Input	출처	설명
+feature_list	사용자 입력	개발할 기능 목록
+context	data/context/*.md	프로젝트 컨텍스트 (있으면)
+Output: runtime/runs/{date}/feature_request.md
+
+Step 1: 설계 작성 - GPT (자동)
+v1 (첫 버전)
+
+Input	출처	설명
+feature_request	runtime/runs/{date}/feature_request.md	Step 0 결과
+design_template	prompts/designer/design.md	설계 프롬프트 템플릿
+codebase_context	data/codebase/*.md	기존 코드 구조 (있으면)
+v2+ (개선 버전)
+
+Input	출처	설명
+feature_request	runtime/runs/{date}/feature_request.md	기능 요구사항
+prev_design	runtime/runs/{date}/design_v{n-1}.md	이전 설계 문서
+prev_eval	runtime/runs/{date}/design_v{n-1}.eval.json	이전 평가 결과
+design_template	prompts/designer/design.md	설계 템플릿
+Output: runtime/runs/{date}/design_v{n}.md
+
+Step 2: 설계 평가 - Claude (자동)
+Input	출처	설명
+design_doc	runtime/runs/{date}/design_v{n}.md	Step 1 결과
+eval_template	prompts/evaluator/design_eval.md	평가 프롬프트
+feature_request	runtime/runs/{date}/feature_request.md	원본 요구사항
+Output: runtime/runs/{date}/design_v{n}.eval.json
+
+
+{
+  "score": 85,
+  "pass": true,
+  "questions": [...],
+  "improvements": [...]
+}
+Step 3: 코드 개발 + 테스트 - Claude (자동)
+v1 (첫 버전)
+
+Input	출처	설명
+approved_design	runtime/runs/{date}/design_v{final}.md	승인된 설계
+dev_template	prompts/developer/implement.md	개발 프롬프트
+test_cases	설계 문서 내 포함	테스트 케이스
+v2+ (수정 버전)
+
+Input	출처	설명
+approved_design	runtime/runs/{date}/design_v{final}.md	승인된 설계
+prev_code	runtime/runs/{date}/code_v{n-1}/	이전 코드
+prev_test_result	runtime/runs/{date}/test_v{n-1}.json	이전 테스트 결과
+prev_feedback	runtime/runs/{date}/feedback_v{n-1}.md	GPT 피드백
+Output:
+
+runtime/runs/{date}/code_v{n}/ (코드 파일들)
+runtime/runs/{date}/test_v{n}.json (테스트 결과)
+Step 4: 테스트 평가 - GPT (자동)
+Input	출처	설명
+test_result	runtime/runs/{date}/test_v{n}.json	Step 3 테스트 결과
+code_diff	runtime/runs/{date}/code_v{n}/	변경된 코드
+design_doc	runtime/runs/{date}/design_v{final}.md	원본 설계
+eval_template	prompts/evaluator/test_eval.md	평가 프롬프트
+Output: runtime/runs/{date}/feedback_v{n}.md
+
+파일 흐름도
+
+Phase 1 - 설계:
+feature_request + design_template + context
+    → [Step1-GPT] → design_v1.md
+    → [Step2-Claude] → design_v1.eval.json
+    
+    (평가 실패 시)
+    → design_v1.md + design_v1.eval.json
+    → [Step1-GPT] → design_v2.md
+    → [Step2-Claude] → design_v2.eval.json
+    ... (최대 5회)
+
+Phase 2 - 개발:
+approved_design + dev_template
+    → [Step3-Claude] → code_v1/ + test_v1.json
+    → [Step4-GPT] → feedback_v1.md
+    
+    (테스트 실패 시)
+    → code_v1 + test_v1 + feedback_v1
+    → [Step3-Claude] → code_v2/ + test_v2.json
+    → [Step4-GPT] → feedback_v2.md
+    ... (최대 5회)

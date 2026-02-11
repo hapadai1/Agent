@@ -1,0 +1,62 @@
+ai_court Step별 Input 데이터
+Step 1: Prompt 생성 (--step=prompt)
+v1 (첫 버전)
+
+Input	출처	설명
+sample_file	data/samples/{section}_case01.md	섹션 샘플 케이스
+base_template	prompts/writer/challenger.md	기본 프롬프트 템플릿
+샘플에서 추출:
+
+section_name, topic, pages, body
+v2+ (개선 버전)
+
+Input	출처	설명
+sample_file	data/samples/{section}_case01.md	섹션 샘플 케이스
+prev_prompt	runtime/runs/{date}/challenger/{section}_v{n-1}.prompt.md	이전 프롬프트
+prev_output	runtime/runs/{date}/challenger/{section}_v{n-1}.out.md	이전 결과물 (상위 80줄)
+prev_eval	runtime/runs/{date}/challenger/{section}_v{n-1}.eval.json	Stage1 평가
+prev_eval2	runtime/runs/{date}/challenger/{section}_v{n-1}.eval_stage2.json	Stage2 평가 (있으면)
+
+
+Step 2: Writer 실행 (--step=writer)
+Input	출처	설명
+prompt_file	runtime/runs/{date}/challenger/{section}_v{n}.prompt.md	Step1 결과
+sample_file	data/samples/{section}_case01.md	메타데이터용
+research_block	data/research/responses/{section}_*.md	리서치 데이터 (있으면)
+human_input	human_input/{section}_human_input.md	대표자 입력 (있으면)
+
+
+
+Step 3: Evaluator Stage1 (--step=evaluator)
+Input	출처	설명
+writer_output	runtime/runs/{date}/challenger/{section}_v{n}.out.md	Step2 결과
+evaluator_template	prompts/evaluator/evaluator.md	평가 프롬프트
+section_name	data/samples/{section}_case01.md	섹션명
+
+
+
+Step 4: Evaluator Stage2 (별도 스크립트)
+Input	출처	설명
+writer_output	runtime/runs/{date}/challenger/{section}_v{n}.out.md	Step2 결과
+evaluator_template	prompts/evaluator/evaluator_stage2.md	심층 평가 프롬프트
+section_name	data/samples/{section}_case01.md	섹션명
+파일 흐름도
+
+
+v1:
+sample + base_template + research + human_input
+    → [Step1] → prompt.md
+    → [Step2] → out.md
+    → [Step3] → eval.json
+    → [Step4] → eval_stage2.json
+
+
+v2+:
+sample + prev_prompt + prev_out + prev_eval + prev_eval2 + research + human_input
+    → [Step1] → prompt.md
+    → [Step2] → out.md
+    → [Step3] → eval.json
+    → [Step4] → eval_stage2.json
+
+
+
