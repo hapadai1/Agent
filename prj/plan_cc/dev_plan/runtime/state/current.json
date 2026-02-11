@@ -1,0 +1,12 @@
+{
+  "phase": "init",
+  "version": 0,
+  "step": "none",
+  "status": "ready",
+  "timestamp": "2026-02-10T00:00:00+09:00",
+  "files": {},
+  "metrics": {
+    "output_chars": 0,
+    "duration_sec": 0
+  }
+}
