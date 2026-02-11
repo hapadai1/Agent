@@ -1,6 +1,5 @@
 #!/bin/bash
 # prj/plan_cc/site_plan/run.sh
-# 사이트 계획 프로젝트
 
 set -e
 

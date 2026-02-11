@@ -1,6 +1,5 @@
 #!/bin/bash
 # prj/plan_cc/dev_plan/run.sh
-# 개발 계획 프로젝트
 
 set -e
 

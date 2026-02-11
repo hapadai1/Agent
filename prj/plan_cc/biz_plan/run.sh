@@ -1,6 +1,5 @@
 #!/bin/bash
 # prj/plan_cc/biz_plan/run.sh
-# 신규서비스기획: AI기반 마이디지털정보 오남용 알림 서비스
 
 set -e
 
