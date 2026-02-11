@@ -2700,3 +2700,9 @@ ChatGPT 호출 중 (Tab 2, timeout: 1500초)...
   [11:17:40] POLL #33 (968s) ⏳ status=WAIT reason=wait_turn text=⏳ turn=-1
   [11:18:10] POLL #34 (999s) ⏳ status=WAIT reason=wait_turn text=⏳ turn=-1
   [11:18:40] POLL #35 (1029s) ⏳ status=WAIT reason=wait_turn text=⏳ turn=-1
+  [11:19:10] POLL #36 (1059s) ⏳ status=WAIT reason=wait_turn text=⏳ turn=-1
+  [11:19:41] POLL #37 (1089s) ⏳ status=WAIT reason=wait_turn text=⏳ turn=-1
+  [11:20:11] POLL #38 (1120s) ⏳ status=WAIT reason=wait_turn text=⏳ turn=-1
+  [11:20:41] POLL #39 (1150s) ⏳ status=WAIT reason=wait_turn text=⏳ turn=-1
+  [11:21:12] POLL #40 (1180s) ⏳ status=WAIT reason=wait_turn text=⏳ turn=-1
+  [11:21:42] POLL #41 (1211s) ⏳ status=WAIT reason=wait_turn text=⏳ turn=-1

@@ -1,0 +1,68 @@
+# sections.yaml - 사이트 분석 섹션 정의
+# courtauction.go.kr 분석 → 스크래핑 전략 수립 Flow
+
+meta:
+  project: court_auction_analysis
+  version: 1
+  description: "대법원 경매 사이트 분석 및 스크래핑 전략 수립"
+
+sections:
+  # Section 1: 사이트 구조 분석
+  - id: s1_site
+    name: "사이트 구조 분석"
+    order: 100
+    description: "courtauction.go.kr의 페이지 구조, 프레임워크, 네비게이션 분석"
+    steps: [analyze, evaluate]
+    analyzer: claude        # Claude가 직접 분석
+    evaluator: gpt          # GPT가 평가
+    checklist:
+      - "WebSquare 프레임워크 구조 파악"
+      - "주요 페이지 URL 목록"
+      - "검색 폼 구조 (법원선택, 사건번호 등)"
+      - "iframe/frameset 구조"
+      - "JavaScript 라우팅 방식"
+
+  # Section 2: 데이터 포인트 식별
+  - id: s2_data
+    name: "데이터 포인트 및 API 매핑"
+    order: 200
+    description: "경매 물건 목록, 상세정보, 입찰 데이터의 필드/셀렉터/API 매핑"
+    steps: [analyze, evaluate]
+    analyzer: claude
+    evaluator: gpt
+    checklist:
+      - "경매 물건 목록 필드 매핑"
+      - "상세 페이지 데이터 구조"
+      - "PDF 문서 유형 (감정평가서, 매각명세서 등)"
+      - "XPath/CSS 셀렉터 추출"
+      - "페이지네이션 방식"
+
+  # Section 3: 기존 CourtAuction 코드 비교
+  - id: s3_compare
+    name: "기존 코드 비교 분석"
+    order: 300
+    description: "CUR_hit/CourtAuction의 기존 스크래퍼와 현재 사이트 Gap 분석"
+    steps: [analyze, evaluate]
+    analyzer: claude
+    evaluator: gpt
+    checklist:
+      - "기존 셀렉터 유효성 확인"
+      - "사이트 변경 사항 식별"
+      - "깨진 기능 목록"
+      - "유지 가능한 기존 코드"
+
+  # Section 4: 스크래핑 전략 수립
+  - id: s4_strategy
+    name: "스크래핑 전략 및 코드 설계"
+    order: 400
+    description: "기술 스택, 봇 우회, 데이터 파이프라인 전략 수립"
+    steps: [analyze, evaluate]
+    analyzer: claude
+    evaluator: gpt
+    checklist:
+      - "기술 스택 선정 (Selenium/Playwright)"
+      - "봇 감지 우회 전략"
+      - "데이터 저장 구조"
+      - "에러 처리 및 재시도 전략"
+      - "스케줄링 방안"
+      - "코드 뼈대 설계"

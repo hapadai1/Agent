@@ -1,0 +1,37 @@
+# project.yaml - CourtAuction 사이트 분석 프로젝트
+name: "court_auction_analysis"
+display_name: "대법원 경매 사이트 분석"
+description: "courtauction.go.kr 사이트를 분석하고 스크래핑 전략을 수립"
+created: "2026-02-11"
+version: "1.0.0"
+
+type: "site_analysis"
+category: "scraping_strategy"
+
+runner:
+  timeout_analyzer: 300       # 5분 (Claude 분석용)
+  timeout_evaluator: 1500     # 25분 (GPT 평가용)
+  max_retries: 2
+  max_versions: 3             # 분석은 3회 반복이면 충분
+  target_score: 85
+
+chatgpt:
+  window: 1
+  tab: 1
+  project_url: "https://chatgpt.com/g/g-p-69847ea187ec81919c424d62ee85ea25-plan"
+  new_chat: true
+
+# CourtAuction 참조 프로젝트
+reference:
+  court_auction_path: "/Users/tony/Desktop/src/CUR_hit/CourtAuction"
+  target_url: "https://www.courtauction.go.kr/pgj/index.on"
+
+dependencies:
+  - "lib/core"
+  - "common/chatgpt.sh"
+  - "common/claude.sh"
+
+logging:
+  level: "INFO"
+  rotate: true
+  max_files: 10
